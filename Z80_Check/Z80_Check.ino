@@ -15,10 +15,10 @@
 
 
 
-//#include <LiquidCrystal.h>
+#include <LiquidCrystal.h>
 
 // initialize the library with the numbers of the interface pins
-//LiquidCrystal lcd(8, 9, 4, 5, 6, 7);
+LiquidCrystal lcd(8, 9, 4, 5, 6, 7);
 
 //  ----------------------------------------------------------------------------------------------------------------------------
 //  M68000 interface pins 
@@ -83,7 +83,9 @@ int data_bus[] = { D00, D01, D02, D03, D04, D05, D06, D07 };
 //  User Interface
 //  ----------------------------------------------------------------------------------------------------------------------------
 
-/*
+int lcd_key       = btnNONE;
+int adc_key_in    = 0;
+
 void DisplayIntro()
 {
   lcd.begin(16, 2);
@@ -93,7 +95,40 @@ void DisplayIntro()
   lcd.print("Artemio 2017");
   delay(2500);
 }
-*/
+
+int read_LCD_buttons()
+{
+  adc_key_in = analogRead(0);   
+  delay(5);
+  int k = (analogRead(0) - adc_key_in); 
+  if (5 < abs(k)) return btnNONE;  
+  
+  if (adc_key_in > 1000) return btnNONE; 
+  if (adc_key_in < 50)   return btnRIGHT;  
+  if (adc_key_in < 195)  return btnUP; 
+  if (adc_key_in < 380)  return btnDOWN; 
+  if (adc_key_in < 555)  return btnLEFT; 
+  if (adc_key_in < 790)  return btnSELECT;   
+  
+  return btnNONE;  
+}  
+
+void Display(const char *text1, const char *text2)
+{
+  lcd.setCursor(0,0);
+  lcd.print(text1);
+  lcd.setCursor(0,1);
+  lcd.print(text2);
+}
+
+void WaitKey()
+{
+  lcd_key = btnNONE;
+  do
+  {
+    lcd_key = read_LCD_buttons(); 
+  }while(lcd_key == btnNONE);
+}
 
 //  ----------------------------------------------------------------------------------------------------------------------------
 //  Backend
@@ -224,7 +259,9 @@ unsigned int ReadData()
   return data;
 }
 
-void CheckRAM(long startAddress, long endAddress)
+#define RAM_OK -1L
+
+long CheckRAM(long startAddress, long endAddress)
 {
   long address = 0;
   unsigned int data = 0, error = 0;
@@ -239,7 +276,7 @@ void CheckRAM(long startAddress, long endAddress)
   Serial.println(text);
   
   SetWriteDataToBus();
-  for(address = startAddress; address < endAddress; address++)
+  for(address = startAddress; address <= endAddress; address++)
   {
     SetAddress(address);
     RequestAddress();
@@ -251,7 +288,7 @@ void CheckRAM(long startAddress, long endAddress)
   
   Serial.println("Reading from RAM");
   SetReadDataFromBus();
-  for(address = startAddress; address < endAddress; address++)
+  for(address = startAddress; address <= endAddress; address++)
   {
  
     SetAddress(address);
@@ -271,16 +308,17 @@ void CheckRAM(long startAddress, long endAddress)
       sprintf(text, " Expected: 0x%0.4X", 0x00FF & address);
       Serial.println(text);
       error++;
+      return(address);
     }
   }
   if(!error)
   {
     Serial.println("RAM OK");
-    delay(2000);
+    return(RAM_OK);
   }
 }
 
-void CheckRAMPattern(long startAddress, long endAddress, int pattern)
+long CheckRAMPattern(long startAddress, long endAddress, int pattern)
 {
   long address = 0;
   unsigned int data = 0, error = 0;
@@ -295,7 +333,7 @@ void CheckRAMPattern(long startAddress, long endAddress, int pattern)
   Serial.println(text);
   
   SetWriteDataToBus();
-  for(address = startAddress; address < endAddress; address++)
+  for(address = startAddress; address <= endAddress; address++)
   {
     SetAddress(address);
     RequestAddress();
@@ -307,7 +345,7 @@ void CheckRAMPattern(long startAddress, long endAddress, int pattern)
   
   Serial.println("Reading from RAM");
   SetReadDataFromBus();
-  for(address = startAddress; address < endAddress; address++)
+  for(address = startAddress; address <= endAddress; address++)
   {
  
     SetAddress(address);
@@ -326,12 +364,13 @@ void CheckRAMPattern(long startAddress, long endAddress, int pattern)
       sprintf(text, " Expected: 0x%0.4X", pattern & 0x00FF);
       Serial.println(text);
       error++;
+      return(address);
     }
   }
   if(!error)
   {
     Serial.println("RAM OK");
-    delay(2000);
+    return(RAM_OK);
   }
 }
 
@@ -342,7 +381,7 @@ void CheckRAMPattern(long startAddress, long endAddress, int pattern)
 void setup() 
 {
   PrepareOutput();
-  //DisplayIntro();
+  DisplayIntro();
   
   Serial.begin(115200);
 }
@@ -351,14 +390,42 @@ void loop()
 {
   long address = 0x0000;
   char text[40];
+
+  Display("Press SELECT", "to check RAM ");
   
-  //8000-87ff shared with 68000; 8-bit on this side, 16-bit on 68000 side
-  CheckRAM(0x8000, 0x87ff);
-  CheckRAMPattern(0x8000, 0x87ff, 0XAA);
+  lcd_key = btnNONE;
+  do
+  {
+    lcd_key = read_LCD_buttons();  // read the buttons
+  }while(lcd_key == btnNONE);
+
+  if(lcd_key == btnSELECT)
+  {
+    long retval = 0;
+    
+    Display("Checking RAM  ", "Address     ");
+    //8000-87ff shared with 68000; 8-bit on this side, 16-bit on 68000 side
+    retval = CheckRAM(0x8000, 0x87ff);
+    if(retval == RAM_OK)
+      Display("Checking RAM  ", "OK          ");
+    else
+      Display("Checking RAM  ", "Fail        ");
+    WaitKey();
+    
+    Display("Checking RAM  ", "Pattern     ");
+    retval = CheckRAMPattern(0x8000, 0x87ff, 0XAA);
+    if(retval == RAM_OK)
+      Display("Checking RAM  ", "OK          ");
+    else
+      Display("Checking RAM  ", "Fail        ");
+    WaitKey();
+  }
+  /*
+  
 
   delay(5000);
   Serial.println("Dumping ROM 0000-7fff");
-  for(address = 0; address < 0x7fff ; address++)
+  for(address = 0; address <= 0x7fff ; address++)
   {
     int data = 0;
     
@@ -374,6 +441,7 @@ void loop()
     sprintf(text, "0x%0.4X", data);
     Serial.println(text);
   }
+  */
 }
 
 
