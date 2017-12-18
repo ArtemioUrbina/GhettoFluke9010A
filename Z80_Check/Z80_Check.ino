@@ -13,12 +13,7 @@
  *   Version 0.1: Added RAM check routines and basic functions
  *****************************************************************/
 
-
-
-#include <LiquidCrystal.h>
-
-// initialize the library with the numbers of the interface pins
-LiquidCrystal lcd(8, 9, 4, 5, 6, 7);
+#include "lcdsimp.h"
 
 //  ----------------------------------------------------------------------------------------------------------------------------
 //  M68000 interface pins 
@@ -64,70 +59,14 @@ int address_bus[] = { A00, A01, A02, A03, A04, A05, A06, A07, A08, A09,
 int data_bus[] = { D00, D01, D02, D03, D04, D05, D06, D07 };
 
 
-
-//  ----------------------------------------------------------------------------------------------------------------------------
-//  Interface defines
-//  ----------------------------------------------------------------------------------------------------------------------------
-
-#define btnRIGHT  0
-#define btnUP     1
-#define btnDOWN   2
-#define btnLEFT   3
-#define btnSELECT 4
-#define btnNONE   5
-
-// delay amount
-#define DELAY_TIME  10
-
 //  ----------------------------------------------------------------------------------------------------------------------------
 //  User Interface
 //  ----------------------------------------------------------------------------------------------------------------------------
 
-int lcd_key       = btnNONE;
-int adc_key_in    = 0;
-
 void DisplayIntro()
 {
-  lcd.begin(16, 2);
-  lcd.setCursor(0,0);
-  lcd.print("Ghetto Z80");
-  lcd.setCursor(0,1);
-  lcd.print("Artemio 2017");
+  Display("Ghetto Z80", "Artemio 2017");  
   delay(2500);
-}
-
-int read_LCD_buttons()
-{
-  adc_key_in = analogRead(0);   
-  delay(5);
-  int k = (analogRead(0) - adc_key_in); 
-  if (5 < abs(k)) return btnNONE;  
-  
-  if (adc_key_in > 1000) return btnNONE; 
-  if (adc_key_in < 50)   return btnRIGHT;  
-  if (adc_key_in < 195)  return btnUP; 
-  if (adc_key_in < 380)  return btnDOWN; 
-  if (adc_key_in < 555)  return btnLEFT; 
-  if (adc_key_in < 790)  return btnSELECT;   
-  
-  return btnNONE;  
-}  
-
-void Display(const char *text1, const char *text2)
-{
-  lcd.setCursor(0,0);
-  lcd.print(text1);
-  lcd.setCursor(0,1);
-  lcd.print(text2);
-}
-
-void WaitKey()
-{
-  lcd_key = btnNONE;
-  do
-  {
-    lcd_key = read_LCD_buttons(); 
-  }while(lcd_key == btnNONE);
 }
 
 //  ----------------------------------------------------------------------------------------------------------------------------
@@ -380,6 +319,7 @@ long CheckRAMPattern(long startAddress, long endAddress, int pattern)
 
 void setup() 
 {
+  initLCD();
   PrepareOutput();
   DisplayIntro();
   
@@ -391,7 +331,7 @@ void loop()
   long address = 0x0000;
   char text[40];
 
-  Display("Press SELECT", "to check RAM ");
+  Display("Press SELECT", "to check RAM");  
   
   lcd_key = btnNONE;
   do
@@ -403,21 +343,21 @@ void loop()
   {
     long retval = 0;
     
-    Display("Checking RAM  ", "Address     ");
+    Display("Checking RAM", "Address");
     //8000-87ff shared with 68000; 8-bit on this side, 16-bit on 68000 side
     retval = CheckRAM(0x8000, 0x87ff);
     if(retval == RAM_OK)
-      Display("Checking RAM  ", "OK          ");
+      Display("Checking RAM", "OK");
     else
-      Display("Checking RAM  ", "Fail        ");
+      Display("Checking RAM", "Fail");
     WaitKey();
     
-    Display("Checking RAM  ", "Pattern     ");
+    Display("Checking RAM", "Pattern");
     retval = CheckRAMPattern(0x8000, 0x87ff, 0XAA);
     if(retval == RAM_OK)
-      Display("Checking RAM  ", "OK          ");
+      Display("Checking RAM", "OK");
     else
-      Display("Checking RAM  ", "Fail        ");
+      Display("Checking RAM", "Fail");
     WaitKey();
   }
   /*

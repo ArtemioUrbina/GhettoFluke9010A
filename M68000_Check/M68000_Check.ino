@@ -13,12 +13,7 @@
  *   Version 0.1: Added RAM check routines and basic functions
  *****************************************************************/
 
-
-
-//#include <LiquidCrystal.h>
-
-// initialize the library with the numbers of the interface pins
-//LiquidCrystal lcd(8, 9, 4, 5, 6, 7);
+#include "lcdsimp.h"
 
 //  ----------------------------------------------------------------------------------------------------------------------------
 //  M68000 interface pins (Free 0, 1, 10, 13)
@@ -54,7 +49,7 @@
 #define D04     18
 #define D05     19
 #define D06     2
-#define D07     13
+#define D07     12
 #define D08     22
 #define D09     24
 #define D10     26
@@ -64,11 +59,11 @@
 #define D14     34
 #define D15     36
 
-#define RESET   12
-#define RW      11
+#define RESET   11
+#define RW      13
 #define AS      44
-#define UDS     10
-#define LDS     3
+#define UDS     3
+#define LDS     9
 
 int address_bus[] = { A01, A02, A03, A04, A05, A06, A07, A08, A09, A10,
                       A11, A12, A13, A14, A15, A16, A17, A18, A19, A20,
@@ -78,36 +73,15 @@ int data_bus[] = { D00, D01, D02, D03, D04, D05, D06, D07, D08, D09,
                    D10, D11, D12, D13, D14, D15 };
 
 
-
-//  ----------------------------------------------------------------------------------------------------------------------------
-//  Interface defines
-//  ----------------------------------------------------------------------------------------------------------------------------
-
-#define btnRIGHT  0
-#define btnUP     1
-#define btnDOWN   2
-#define btnLEFT   3
-#define btnSELECT 4
-#define btnNONE   5
-
-// delay amount
-#define DELAY_TIME  10
-
 //  ----------------------------------------------------------------------------------------------------------------------------
 //  User Interface
 //  ----------------------------------------------------------------------------------------------------------------------------
 
-/*
 void DisplayIntro()
 {
-  lcd.begin(16, 2);
-  lcd.setCursor(0,0);
-  lcd.print("Ghetto 68000");
-  lcd.setCursor(0,1);
-  lcd.print("Artemio 2017");
+  Display("Ghetto 68000", "Artemio 2017");
   delay(2500);
 }
-*/
 
 //  ----------------------------------------------------------------------------------------------------------------------------
 //  Backend
@@ -140,17 +114,17 @@ void PrepareOutput()
 
   pinMode(AS, OUTPUT); 
   pinMode(RW, OUTPUT); 
+  pinMode(RESET, INPUT); 
   pinMode(UDS, OUTPUT); 
   pinMode(LDS, OUTPUT); 
-  pinMode(RESET, INPUT); 
   
   for(count = 0; count < 23; count++)
     digitalWrite(address_bus[count], LOW);
 
-  digitalWrite(UDS, LOW);
-  digitalWrite(LDS, LOW);
   digitalWrite(AS, LOW);
   digitalWrite(RW, HIGH);
+  digitalWrite(UDS, LOW);
+  digitalWrite(LDS, LOW);
 }
 
 void SetAddress(long address)
@@ -436,39 +410,62 @@ void CheckRAM8bitPattern(long startAddress, long endAddress, int pattern)
 
 void setup() 
 {
+  initLCD();
   PrepareOutput();
-  //DisplayIntro();
+  DisplayIntro();
   
   Serial.begin(115200);
 }
 
 void loop() 
 {
-  //RAM shared with TMS320C10NL-14 protection microcontroller
-  CheckRAM(0x30000, 0x33fff);
-  //40000-40fff RAM sprite display properties (co-ordinates, character, color - etc)
-  CheckRAM(0x40fff, 0x40fff);
-  //50000-50dff Palette RAM
-  CheckRAM(0x50000, 0x50dff);
-  //7a000-7abff RAM shared with Z80; 16-bit on this side, 8-bit on Z80 side
-  CheckRAM8bit(0x7a000, 0x7abff);
-
-  //RAM shared with TMS320C10NL-14 protection microcontroller
-  CheckRAMPattern(0x30000, 0x33fff, 0xABAD);
-  //40000-40fff RAM sprite display properties (co-ordinates, character, color - etc)
-  CheckRAMPattern(0x40fff, 0x40fff, 0xABAD);
-  //50000-50dff Palette RAM
-  CheckRAMPattern(0x50000, 0x50dff, 0xABAD);
-  //7a000-7abff RAM shared with Z80; 16-bit on this side, 8-bit on Z80 side
-  CheckRAM8bitPattern(0x7a000, 0x7abff, 0xABAD);
-
-/*
-  for(address = 0; address < 0x1ffff ; address+=2)
+  Display("Press SELECT", "to check RAM");  
+  
+  lcd_key = WaitKey();
+  
+  if(lcd_key == btnSELECT)
   {
+    Display("Checking RAM", "0x30000");  
+    //RAM shared with TMS320C10NL-14 protection microcontroller
+    CheckRAM(0x30000, 0x33fff);
+    Display("End Check", "");  
+
+    /*
+    Display("Checking RAM", "0x40000");  
+    //40000-40fff RAM sprite display properties (co-ordinates, character, color - etc)
+    CheckRAM(0x40fff, 0x40fff);
+
+    Display("Checking RAM", "0x50000");  
+    //50000-50dff Palette RAM
+    CheckRAM(0x50000, 0x50dff);
+
+    Display("Checking RAM", "0x7a000");  
+    //7a000-7abff RAM shared with Z80; 16-bit on this side, 8-bit on Z80 side
+    CheckRAM8bit(0x7a000, 0x7abff);
+    */
+
+    /*
+    //RAM shared with TMS320C10NL-14 protection microcontroller
+    CheckRAMPattern(0x30000, 0x33fff, 0xABAD);
+    //40000-40fff RAM sprite display properties (co-ordinates, character, color - etc)
+    CheckRAMPattern(0x40fff, 0x40fff, 0xABAD);
+    //50000-50dff Palette RAM
+    CheckRAMPattern(0x50000, 0x50dff, 0xABAD);
+    //7a000-7abff RAM shared with Z80; 16-bit on this side, 8-bit on Z80 side
+    CheckRAM8bitPattern(0x7a000, 0x7abff, 0xABAD);
+    */
+  }
+/*
+  Display("Dumping ROM", "0x00100");  
+  for(long address = 0x100; address < 0x1ffff ; address+=2)
+  {
+    char text[40];
+    int data = 0;
+    
     SetAddress(address);
     RequestAddress();
     delay(5);
-
+    
     data = ReadData();
     EndRequestAddress();
     
@@ -477,6 +474,7 @@ void loop()
     sprintf(text, "0x%0.4X", data);
     Serial.println(text);
   }
+  Display("ROM Dumped", "0x1ffff");  
   */
 }
 
