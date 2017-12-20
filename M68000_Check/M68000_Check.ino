@@ -86,7 +86,7 @@ int data_bus[DATA_L] = { D00, D01, D02, D03, D04, D05, D06, D07, D08, D09,
 void DisplayIntro()
 {
   Display("Ghetto 68000", "Artemio 2017");
-  delay(20);
+  delay(2000);
 }
 
 //  ----------------------------------------------------------------------------------------------------------------------------
@@ -133,15 +133,15 @@ void PrepareOutput()
   digitalWrite(LDS, LOW);
 }
 
-void SetAddress(long address)
+void SetAddress(uint32_t address)
 {
   int pos = 0, b = 0, count = ADDR_L - 1, start = 0;;
-  unsigned char bits[8];
-  unsigned char cByte = 0;
+  uint8_t bits[8];
+  uint8_t cByte = 0;
 
   for(pos = 0; pos < 4; pos ++)
   {
-    cByte = (address & 0xFF000000L) >> 24;
+    cByte = (address & (uint32_t)0xFF000000) >> 24;
     address = address << 8;
     for (b = 7; b > -1; b--) 
     {  
@@ -180,11 +180,11 @@ void SetWriteDataToBus()
   digitalWrite(RW, LOW);
 }
 
-void SetData(unsigned int data)
+void SetData(uint16_t data)
 {
   int pos = 0, b = 0, count = DATA_L - 1;
-  unsigned char bits[8];
-  unsigned char cByte = 0;
+  uint8_t bits[8];
+  uint8_t cByte = 0;
 
   for(pos = 0; pos < 2; pos ++)
   {
@@ -202,10 +202,10 @@ void SetData(unsigned int data)
   }
 }
 
-unsigned int ReadData()
+uint16_t ReadData()
 {
   int count = 0;
-  unsigned int data = 0;
+  uint16_t data = 0;
 
   for(count = DATA_L - 1; count >= 0; count--)
     data = (data << 1) | digitalRead(data_bus[count]);
@@ -213,11 +213,75 @@ unsigned int ReadData()
   return data;
 }
 
-
-void CheckRAM(long startAddress, long endAddress)
+void CheckROM(uint32_t startAddress, uint32_t endAddress)
 {
-  long address = 0;
-  unsigned int data = 0, error = 0;
+  char text[40];
+  uint32_t address, checksum;
+  CRC32 crc;
+    
+  for(address = startAddress; address < endAddress; address+=2)
+  {
+    uint16_t data = 0;
+    uint8_t mbyte = 0;
+
+    SetAddress(address);
+    RequestAddress();
+    
+    data = ReadData();
+    mbyte = (data & 0xFF00) >> 8;
+    crc.update(mbyte);
+    mbyte = data & 0x00FF;
+    crc.update(mbyte);
+    
+    EndRequestAddress();
+  }
+  
+  checksum = crc.finalize();
+  sprintf(text, "ROM: 0x%lX", checksum);
+  DisplayTop(text);
+}
+
+
+void CheckROMInterleaved(uint32_t startAddress, uint32_t endAddress)
+{
+  char text[40];
+  uint32_t address, checksum1, checksum2;
+  CRC32 crc1, crc2;
+
+  StartProgress(startAddress, endAddress);
+  for(address = startAddress; address < endAddress; address+=2)
+  {
+    uint16_t data = 0;
+    uint8_t mbyte = 0;
+
+    SetAddress(address);
+    RequestAddress();
+    
+    data = ReadData();
+    mbyte = (data & 0xFF00) >> 8;
+    crc1.update(mbyte);
+    mbyte = data & 0x00FF;
+    crc2.update(mbyte);
+    
+    EndRequestAddress();
+    
+    DisplayProgress(startAddress, endAddress, address);
+  }
+  
+  checksum1 = crc1.finalize();
+  sprintf(text, "ROM1: 0x%lX", checksum1);
+  DisplayTop(text);
+  
+  checksum2 = crc2.finalize();
+  sprintf(text, "ROM2: 0x%lX", checksum2);
+  DisplayBottom(text);
+  WaitKey();
+}
+
+void CheckRAM(uint32_t startAddress, uint32_t endAddress)
+{
+  uint32_t address = 0;
+  uint16_t data = 0, error = 0;
   char text[40];
 
   Serial.print("Writing to RAM: ");
@@ -263,10 +327,10 @@ void CheckRAM(long startAddress, long endAddress)
   }
 }
 
-void CheckRAMPattern(long startAddress, long endAddress, int pattern)
+void CheckRAMPattern(uint32_t startAddress, uint32_t endAddress, uint16_t pattern)
 {
-  long address = 0;
-  unsigned int data = 0, error = 0;
+  uint32_t address = 0;
+  uint16_t data = 0, error = 0;
   char text[40];
 
   Serial.print("Writing to RAM: ");
@@ -312,10 +376,10 @@ void CheckRAMPattern(long startAddress, long endAddress, int pattern)
   }
 }
 
-void CheckRAM8bit(long startAddress, long endAddress)
+void CheckRAM8bit(uint32_t startAddress, uint32_t endAddress)
 {
-  long address = 0;
-  unsigned int data = 0, error = 0;
+  uint32_t address = 0;
+  uint16_t data = 0, error = 0;
   char text[40];
 
   Serial.print("Writing to RAM (lower 8 bit): ");
@@ -361,10 +425,10 @@ void CheckRAM8bit(long startAddress, long endAddress)
   }
 }
 
-void CheckRAM8bitPattern(long startAddress, long endAddress, int pattern)
+void CheckRAM8bitPattern(uint32_t startAddress, uint32_t endAddress, uint16_t pattern)
 {
-  long address = 0;
-  unsigned int data = 0, error = 0;
+  uint32_t address = 0;
+  uint16_t data = 0, error = 0;
   char text[40];
 
   Serial.print("Writing to RAM (lower 8 bit): ");
@@ -422,18 +486,23 @@ void setup()
   
   Serial.begin(115200);
 }
-
-const uint8_t DECREASING[32] = { 0x1F, 0x1E, 0x1D, 0x1C,
-                                 0x1B, 0x1A, 0x19, 0x18,
-                                 0x17, 0x16, 0x15, 0x14,
-                                 0x13, 0x12, 0x11, 0x10,
-                                 0x0F, 0x0E, 0x0D, 0x0C,
-                                 0x0B, 0x0A, 0x09, 0x08,
-                                 0x07, 0x06, 0x05, 0x04,
-                                 0x03, 0x02, 0x01, 0x00 };
                                  
 void loop() 
 {
+  Display("Press SELECT", "to check ROM");  
+  lcd_key = WaitKey();
+
+  if(lcd_key == btnSELECT)
+  {
+    uint32_t startval, endval;
+    
+    DisplayTop("<ROM CRC>");
+    startval = SelectHex(0, 0x7FFFFE, 6, 1, 1, "start:");
+    endval = SelectHex(startval, 0x7FFFFE, 6, 1, 1, "end:");
+    DisplayTop("<ROM CRC> ...");
+    CheckROMInterleaved(startval, endval);
+  }
+  
   /*
   Display("Press SELECT", "to check RAM");  
   lcd_key = WaitKey();
@@ -471,42 +540,6 @@ void loop()
     CheckRAM8bitPattern(0x7a000, 0x7abff, 0xABAD);
   }
   */
-
-  char text[40];
-    
-  Display("Press SELECT", "to check ROM");  
-  lcd_key = WaitKey();
-  if(lcd_key == btnSELECT)
-  {
-    CRC32 crc1, crc2;
-    
-    Display("Dumping ROM", "0x00000");  
-    for(long address = 0x0; address < 0x1ffff; address+=2)
-    {
-      int data = 0;
-      uint8_t mbyte = 0;
-
-      SetAddress(address);
-      RequestAddress();
-      
-      data = ReadData();
-      mbyte = (data & 0xFF00) >> 8;
-      crc1.update(mbyte);
-      mbyte = data & 0x00FF;
-      crc2.update(mbyte);
-      
-      EndRequestAddress();
-    }
-    Display("ROM Dumped", "0x1ffff");  
-    
-    uint32_t checksum1 = crc1.finalize();
-    sprintf(text, "ROM1: 0x%lX", checksum1);
-    Serial.println(text);
-    
-    uint32_t checksum2 = crc2.finalize();
-    sprintf(text, "ROM2: 0x%lX", checksum2);
-    Serial.println(text);
-  }
 }
 
 
