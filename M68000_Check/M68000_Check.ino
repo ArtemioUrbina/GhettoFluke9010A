@@ -14,10 +14,14 @@
  *****************************************************************/
 
 #include "lcdsimp.h"
+#include "crc32.h"
+
 
 //  ----------------------------------------------------------------------------------------------------------------------------
 //  M68000 interface pins (Free 0, 1, 10, 13)
 //  ----------------------------------------------------------------------------------------------------------------------------
+#define ADDR_L  23
+
 #define A01     46
 #define A02     48  
 #define A03     50
@@ -42,6 +46,8 @@
 #define A22     25  
 #define A23     23
 
+#define DATA_L  16
+
 #define D00     14 
 #define D01     15  
 #define D02     16
@@ -65,11 +71,11 @@
 #define UDS     3
 #define LDS     9
 
-int address_bus[] = { A01, A02, A03, A04, A05, A06, A07, A08, A09, A10,
+int address_bus[ADDR_L] = { A01, A02, A03, A04, A05, A06, A07, A08, A09, A10,
                       A11, A12, A13, A14, A15, A16, A17, A18, A19, A20,
                       A21, A22, A23 };
 
-int data_bus[] = { D00, D01, D02, D03, D04, D05, D06, D07, D08, D09,
+int data_bus[DATA_L] = { D00, D01, D02, D03, D04, D05, D06, D07, D08, D09,
                    D10, D11, D12, D13, D14, D15 };
 
 
@@ -80,7 +86,7 @@ int data_bus[] = { D00, D01, D02, D03, D04, D05, D06, D07, D08, D09,
 void DisplayIntro()
 {
   Display("Ghetto 68000", "Artemio 2017");
-  delay(2500);
+  delay(20);
 }
 
 //  ----------------------------------------------------------------------------------------------------------------------------
@@ -91,7 +97,7 @@ void SetDataWrite()
 {
   int count = 0;
 
-  for(count = 0; count < 16; count++)
+  for(count = 0; count < DATA_L; count++)
     pinMode(data_bus[count], OUTPUT); 
 }
 
@@ -99,7 +105,7 @@ void SetDataRead()
 {
   int count = 0;
 
-  for(count = 0; count < 16; count++)
+  for(count = 0; count < DATA_L; count++)
     pinMode(data_bus[count], INPUT); 
 }
 
@@ -107,7 +113,7 @@ void PrepareOutput()
 {
   int count = 0;
 
-  for(count = 0; count < 23; count++)
+  for(count = 0; count < ADDR_L; count++)
     pinMode(address_bus[count], OUTPUT); 
 
   SetDataRead(); 
@@ -118,7 +124,7 @@ void PrepareOutput()
   pinMode(UDS, OUTPUT); 
   pinMode(LDS, OUTPUT); 
   
-  for(count = 0; count < 23; count++)
+  for(count = 0; count < ADDR_L; count++)
     digitalWrite(address_bus[count], LOW);
 
   digitalWrite(AS, LOW);
@@ -129,7 +135,7 @@ void PrepareOutput()
 
 void SetAddress(long address)
 {
-  int pos = 0, b = 0, count = 22, start = 0;;
+  int pos = 0, b = 0, count = ADDR_L - 1, start = 0;;
   unsigned char bits[8];
   unsigned char cByte = 0;
 
@@ -176,7 +182,7 @@ void SetWriteDataToBus()
 
 void SetData(unsigned int data)
 {
-  int pos = 0, b = 0, count = 15;
+  int pos = 0, b = 0, count = DATA_L - 1;
   unsigned char bits[8];
   unsigned char cByte = 0;
 
@@ -201,7 +207,7 @@ unsigned int ReadData()
   int count = 0;
   unsigned int data = 0;
 
-  for(count = 15; count >= 0; count--)
+  for(count = DATA_L - 1; count >= 0; count--)
     data = (data << 1) | digitalRead(data_bus[count]);
   
   return data;
@@ -417,18 +423,28 @@ void setup()
   Serial.begin(115200);
 }
 
+const uint8_t DECREASING[32] = { 0x1F, 0x1E, 0x1D, 0x1C,
+                                 0x1B, 0x1A, 0x19, 0x18,
+                                 0x17, 0x16, 0x15, 0x14,
+                                 0x13, 0x12, 0x11, 0x10,
+                                 0x0F, 0x0E, 0x0D, 0x0C,
+                                 0x0B, 0x0A, 0x09, 0x08,
+                                 0x07, 0x06, 0x05, 0x04,
+                                 0x03, 0x02, 0x01, 0x00 };
+                                 
 void loop() 
 {
+  /*
   Display("Press SELECT", "to check RAM");  
-  
   lcd_key = WaitKey();
-  
+
   if(lcd_key == btnSELECT)
   {
     Display("Checking RAM", "0x30000");  
     //RAM shared with TMS320C10NL-14 protection microcontroller
     CheckRAM(0x30000, 0x33fff);
     Display("End Check", "");  
+    */
 
     /*
     Display("Checking RAM", "0x40000");  
@@ -453,29 +469,44 @@ void loop()
     CheckRAMPattern(0x50000, 0x50dff, 0xABAD);
     //7a000-7abff RAM shared with Z80; 16-bit on this side, 8-bit on Z80 side
     CheckRAM8bitPattern(0x7a000, 0x7abff, 0xABAD);
-    */
   }
-/*
-  Display("Dumping ROM", "0x00100");  
-  for(long address = 0x100; address < 0x1ffff ; address+=2)
+  */
+
+  char text[40];
+    
+  Display("Press SELECT", "to check ROM");  
+  lcd_key = WaitKey();
+  if(lcd_key == btnSELECT)
   {
-    char text[40];
-    int data = 0;
+    CRC32 crc1, crc2;
     
-    SetAddress(address);
-    RequestAddress();
-    delay(5);
+    Display("Dumping ROM", "0x00000");  
+    for(long address = 0x0; address < 0x1ffff; address+=2)
+    {
+      int data = 0;
+      uint8_t mbyte = 0;
+
+      SetAddress(address);
+      RequestAddress();
+      
+      data = ReadData();
+      mbyte = (data & 0xFF00) >> 8;
+      crc1.update(mbyte);
+      mbyte = data & 0x00FF;
+      crc2.update(mbyte);
+      
+      EndRequestAddress();
+    }
+    Display("ROM Dumped", "0x1ffff");  
     
-    data = ReadData();
-    EndRequestAddress();
+    uint32_t checksum1 = crc1.finalize();
+    sprintf(text, "ROM1: 0x%lX", checksum1);
+    Serial.println(text);
     
-    sprintf(text, " 0x%0.6lX: ", address);
-    Serial.print(text);
-    sprintf(text, "0x%0.4X", data);
+    uint32_t checksum2 = crc2.finalize();
+    sprintf(text, "ROM2: 0x%lX", checksum2);
     Serial.println(text);
   }
-  Display("ROM Dumped", "0x1ffff");  
-  */
 }
 
 

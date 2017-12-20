@@ -93,5 +93,7 @@ int WaitKey()
   {
     lcd_key = read_LCD_buttons(); 
   }while(lcd_key == btnNONE);
+  
+  delay(200);
   return lcd_key;
 }

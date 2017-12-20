@@ -18,6 +18,8 @@
 //  ----------------------------------------------------------------------------------------------------------------------------
 //  M68000 interface pins 
 //  ----------------------------------------------------------------------------------------------------------------------------
+#define ADDR_L  16
+
 #define A00     53
 #define A01     51
 #define A02     49  
@@ -34,6 +36,8 @@
 #define A13     27
 #define A14     29
 #define A15     31
+
+#define DATA_L  8
 
 #define D00     34
 #define D01     36  
@@ -77,7 +81,7 @@ void SetDataWrite()
 {
   int count = 0;
 
-  for(count = 0; count < 8; count++)
+  for(count = 0; count < DATA_L; count++)
     pinMode(data_bus[count], OUTPUT); 
 }
 
@@ -85,7 +89,7 @@ void SetDataRead()
 {
   int count = 0;
 
-  for(count = 0; count < 8; count++)
+  for(count = 0; count < DATA_L; count++)
     pinMode(data_bus[count], INPUT); 
 }
 
@@ -93,7 +97,7 @@ void PrepareOutput()
 {
   int count = 0;
 
-  for(count = 0; count < 16; count++)
+  for(count = 0; count < ADDR_L; count++)
     pinMode(address_bus[count], OUTPUT); 
 
   SetDataRead(); 
@@ -107,7 +111,7 @@ void PrepareOutput()
   pinMode(RESET, INPUT); 
   pinMode(WAIT, INPUT);
   
-  for(count = 0; count < 16; count++)
+  for(count = 0; count < ADDR_L; count++)
     digitalWrite(address_bus[count], LOW);
 
   digitalWrite(MREQ, HIGH);
@@ -120,7 +124,7 @@ void PrepareOutput()
 
 void SetAddress(unsigned int data)
 {
-  int pos = 0, b = 0, count = 15;
+  int pos = 0, b = 0, count = ADDR_L - 1;
   unsigned char bits[8];
   unsigned char cByte = 0;
 
@@ -177,7 +181,7 @@ void SetData(unsigned int data)
   int b = 0;
   unsigned char bits[8];
   
-  for (b = 7; b > -1; b--) 
+  for (b = DATA_L - 1; b > -1; b--) 
   {  
     bits[b] = (data & (1 << b)) != 0;
     if(bits[b] == 1)
@@ -192,7 +196,7 @@ unsigned int ReadData()
   int count = 0;
   unsigned int data = 0;
 
-  for(count = 7; count >= 0; count--)
+  for(count = DATA_L - 1; count >= 0; count--)
     data = (data << 1) | digitalRead(data_bus[count]);
   
   return data;
