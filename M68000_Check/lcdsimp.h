@@ -192,10 +192,10 @@ uint32_t SelectHex(uint32_t startVal, uint32_t endVal, uint8_t charCount, uint8_
 }
 
 #define StartProgress(startval, endval) \  
-    uint32_t unit, amount, last; \  
-    DisplayBottom("----------------"); unit = (endval - startval)/15; amount = 0; last = 0xFFFF;
+    uint32_t __unit, __amount, __last; \  
+    DisplayBottom("[--------------]"); __unit = (endval - startval)/(uint32_t)15; __amount = 0; __last = (uint32_t)0xFFFF;
 
-#define DisplayProgress(startval, endval, pos) \  
-    amount = pos / unit;  \  
-    if(amount != last) { lcd.setCursor(amount, 1); lcd.print("*"); last = amount; }
+#define DisplayProgress(pos) \  
+    __amount = pos / __unit;  \  
+    if(__amount != __last) { lcd.setCursor((int)__amount, 1); lcd.print("*"); __last = __amount; }
 

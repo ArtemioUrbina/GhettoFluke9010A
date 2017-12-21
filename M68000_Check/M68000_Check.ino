@@ -80,16 +80,6 @@ int data_bus[DATA_L] = { D00, D01, D02, D03, D04, D05, D06, D07, D08, D09,
 
 
 //  ----------------------------------------------------------------------------------------------------------------------------
-//  User Interface
-//  ----------------------------------------------------------------------------------------------------------------------------
-
-void DisplayIntro()
-{
-  Display("Ghetto 68000", "Artemio 2017");
-  delay(2000);
-}
-
-//  ----------------------------------------------------------------------------------------------------------------------------
 //  Backend
 //  ----------------------------------------------------------------------------------------------------------------------------
 
@@ -158,23 +148,23 @@ void SetAddress(uint32_t address)
   }
 }
 
-void RequestAddress()
+inline void RequestAddress()
 {
   digitalWrite(AS, LOW);
 }
 
-void EndRequestAddress()
+inline void EndRequestAddress()
 {
   digitalWrite(AS, HIGH);
 }
 
-void SetReadDataFromBus()
+inline void SetReadDataFromBus()
 {
   SetDataRead(); 
   digitalWrite(RW, HIGH);
 }
 
-void SetWriteDataToBus()
+inline void SetWriteDataToBus()
 {
   SetDataWrite(); 
   digitalWrite(RW, LOW);
@@ -213,12 +203,20 @@ uint16_t ReadData()
   return data;
 }
 
+
+//  ----------------------------------------------------------------------------------------------------------------------------
+//  Macro Functions
+//  ----------------------------------------------------------------------------------------------------------------------------
+
+
 void CheckROM(uint32_t startAddress, uint32_t endAddress)
 {
   char text[40];
   uint32_t address, checksum;
   CRC32 crc;
-    
+
+  DisplayTop("<ROM CRC> ...");
+  StartProgress(startAddress, endAddress);
   for(address = startAddress; address < endAddress; address+=2)
   {
     uint16_t data = 0;
@@ -232,13 +230,15 @@ void CheckROM(uint32_t startAddress, uint32_t endAddress)
     crc.update(mbyte);
     mbyte = data & 0x00FF;
     crc.update(mbyte);
-    
+
+    DisplayProgress(address);
     EndRequestAddress();
   }
   
   checksum = crc.finalize();
   sprintf(text, "ROM: 0x%lX", checksum);
-  DisplayTop(text);
+  DisplayBottom(text);
+  WaitKey();
 }
 
 
@@ -248,6 +248,7 @@ void CheckROMInterleaved(uint32_t startAddress, uint32_t endAddress)
   uint32_t address, checksum1, checksum2;
   CRC32 crc1, crc2;
 
+  DisplayTop("<ROM CRC> ...");
   StartProgress(startAddress, endAddress);
   for(address = startAddress; address < endAddress; address+=2)
   {
@@ -265,7 +266,7 @@ void CheckROMInterleaved(uint32_t startAddress, uint32_t endAddress)
     
     EndRequestAddress();
     
-    DisplayProgress(startAddress, endAddress, address);
+    DisplayProgress(address);
   }
   
   checksum1 = crc1.finalize();
@@ -281,16 +282,11 @@ void CheckROMInterleaved(uint32_t startAddress, uint32_t endAddress)
 void CheckRAM(uint32_t startAddress, uint32_t endAddress)
 {
   uint32_t address = 0;
-  uint16_t data = 0, error = 0;
+  uint16_t data = 0;
   char text[40];
 
-  Serial.print("Writing to RAM: ");
-  sprintf(text, "0x%0.6lX", startAddress);
-  Serial.print(text);
-  sprintf(text, "-0x%0.6lX", endAddress);
-  Serial.print(text);
-  sprintf(text, " with address & 0x0000FFFF");
-  Serial.println(text);
+  DisplayTop("<Write RAM> ...");
+  StartProgress(startAddress, endAddress);
   
   SetWriteDataToBus();
   for(address = startAddress; address < endAddress; address+=2)
@@ -301,45 +297,48 @@ void CheckRAM(uint32_t startAddress, uint32_t endAddress)
     SetData(address);
       
     EndRequestAddress();
+    
+    DisplayProgress(address);
   }
   
-  Serial.println("Reading from RAM");
+  DisplayTop("<Read RAM> ...");
   SetReadDataFromBus();
   for(address = startAddress; address < endAddress; address+=2)
   {
- 
     SetAddress(address);
     RequestAddress();
     
     data = ReadData();
     EndRequestAddress();
 
+    DisplayProgress(address);
     if(data != (0x0000FFFF & address))
     {
-      Serial.println("ERROR IN RAM");
-      sprintf(text, "Address: 0x%0.6lX", address);
-      Serial.print(text);
-      sprintf(text, " Got: 0x%0.4X", data);
-      Serial.print(text);
-      sprintf(text, " Expected: 0x%0.4X", 0x0000FFFF & address);
-      Serial.println(text);
+      sprintf(text, "Error @ 0x%0.6lX", address);
+      DisplayTop(text);
+      
+      sprintf(text, "R: %0.4X E: %0.4X", data, 0x0000FFFF & address);
+      DisplayBottom(text);
+      lcd_key = WaitKey();
+      if(lcd_key == btnSELECT)
+        return;
     }
   }
+  
+  DisplayTop("RAM OK");
+  sprintf(text, "0x%0.6lX-%0.6lX", startAddress, endAddress);
+  DisplayBottom(text);
+  WaitKey();
 }
 
 void CheckRAMPattern(uint32_t startAddress, uint32_t endAddress, uint16_t pattern)
 {
   uint32_t address = 0;
-  uint16_t data = 0, error = 0;
+  uint16_t data = 0;
   char text[40];
 
-  Serial.print("Writing to RAM: ");
-  sprintf(text, "0x%0.6lX", startAddress);
-  Serial.print(text);
-  sprintf(text, "-0x%0.6lX", endAddress);
-  Serial.print(text);
-  sprintf(text, " with value 0x%0.4X", pattern);
-  Serial.println(text);
+  DisplayTop("<Write RAM> ...");
+  StartProgress(startAddress, endAddress);
   
   SetWriteDataToBus();
   for(address = startAddress; address < endAddress; address+=2)
@@ -350,45 +349,47 @@ void CheckRAMPattern(uint32_t startAddress, uint32_t endAddress, uint16_t patter
     SetData(pattern);
       
     EndRequestAddress();
+    DisplayProgress(address);
   }
   
-  Serial.println("Reading from RAM");
+  DisplayTop("<Read RAM> ...");
   SetReadDataFromBus();
   for(address = startAddress; address < endAddress; address+=2)
   {
- 
     SetAddress(address);
     RequestAddress();
     
     data = ReadData();
     EndRequestAddress();
 
+    DisplayProgress(address);
     if(data != pattern)
     {
-      Serial.println("ERROR IN RAM");
-      sprintf(text, "Address: 0x%0.6lX", address);
-      Serial.print(text);
-      sprintf(text, " Got: 0x%0.4X", data);
-      Serial.print(text);
-      sprintf(text, " Expected: 0x%0.4X", pattern);
-      Serial.println(text);
+      sprintf(text, "Error @ 0x%0.6lX", address);
+      DisplayTop(text);
+      
+      sprintf(text, "R: %0.4X E: %0.4X", data, pattern);
+      DisplayBottom(text);
+      lcd_key = WaitKey();
+      if(lcd_key == btnSELECT)
+        return;
     }
   }
+  
+  DisplayTop("RAM OK");
+  sprintf(text, "0x%0.6lX-%0.6lX", startAddress, endAddress);
+  DisplayBottom(text);
+  WaitKey();
 }
 
 void CheckRAM8bit(uint32_t startAddress, uint32_t endAddress)
 {
   uint32_t address = 0;
-  uint16_t data = 0, error = 0;
+  uint16_t data = 0;
   char text[40];
 
-  Serial.print("Writing to RAM (lower 8 bit): ");
-  sprintf(text, "0x%0.6lX", startAddress);
-  Serial.print(text);
-  sprintf(text, "-0x%0.6lX", endAddress);
-  Serial.print(text);
-  sprintf(text, " with address & 0x000000FF");
-  Serial.println(text);
+  DisplayTop("<Write RAM> ...");
+  StartProgress(startAddress, endAddress);
   
   SetWriteDataToBus();
   for(address = startAddress; address < endAddress; address+=2)
@@ -399,45 +400,47 @@ void CheckRAM8bit(uint32_t startAddress, uint32_t endAddress)
     SetData(address);
       
     EndRequestAddress();
+    DisplayProgress(address);
   }
   
-  Serial.println("Reading from RAM");
+  DisplayTop("<Read RAM> ...");
   SetReadDataFromBus();
   for(address = startAddress; address < endAddress; address+=2)
   {
- 
     SetAddress(address);
     RequestAddress();
     
     data = ReadData();
     EndRequestAddress();
 
+    DisplayProgress(address);
     if((data & 0x00FF) != (0x000000FF & address))
     {
-      Serial.println("ERROR IN RAM");
-      sprintf(text, "Address: 0x%0.6lX", address);
-      Serial.print(text);
-      sprintf(text, " Got: 0x%0.4X", data);
-      Serial.print(text);
-      sprintf(text, " Expected: 0x%0.4X", 0x000000FF & address);
-      Serial.println(text);
+      sprintf(text, "Error @ 0x%0.6lX", address);
+      DisplayTop(text);
+      
+      sprintf(text, "R: %0.4X E: %0.4X", data, 0x000000FF & address);
+      DisplayBottom(text);
+      lcd_key = WaitKey();
+      if(lcd_key == btnSELECT)
+        return;
     }
   }
+  
+  DisplayTop("RAM OK");
+  sprintf(text, "0x%0.6lX-%0.6lX", startAddress, endAddress);
+  DisplayBottom(text);
+  WaitKey();
 }
 
 void CheckRAM8bitPattern(uint32_t startAddress, uint32_t endAddress, uint16_t pattern)
 {
   uint32_t address = 0;
-  uint16_t data = 0, error = 0;
+  uint8_t data = 0;
   char text[40];
 
-  Serial.print("Writing to RAM (lower 8 bit): ");
-  sprintf(text, "0x%0.6lX", startAddress);
-  Serial.print(text);
-  sprintf(text, "-0x%0.6lX", endAddress);
-  Serial.print(text);
-  sprintf(text, " with value 0x%0.4X", 0x00FF & pattern);
-  Serial.println(text);
+  DisplayTop("<Write RAM> ...");
+  StartProgress(startAddress, endAddress);
   
   SetWriteDataToBus();
   for(address = startAddress; address < endAddress; address+=2)
@@ -448,31 +451,123 @@ void CheckRAM8bitPattern(uint32_t startAddress, uint32_t endAddress, uint16_t pa
     SetData(pattern);
       
     EndRequestAddress();
+    DisplayProgress(address);
   }
   
-  Serial.println("Reading from RAM");
+  DisplayTop("<Read RAM> ...");
   SetReadDataFromBus();
   for(address = startAddress; address < endAddress; address+=2)
   {
- 
     SetAddress(address);
     RequestAddress();
     
     data = ReadData();
     EndRequestAddress();
 
+    DisplayProgress(address);
     if((data & 0x00FF) != (pattern & 0x00FF))
     {
-      Serial.println("ERROR IN RAM");
-      sprintf(text, "Address: 0x%0.6lX", address);
-      Serial.print(text);
-      sprintf(text, " Got: 0x%0.4X", data);
-      Serial.print(text);
-      sprintf(text, " Expected: 0x%0.4X", pattern & 0x00FF);
-      Serial.println(text);
+      sprintf(text, "Error @ 0x%0.6lX", address);
+      DisplayTop(text);
+      
+      printf(text, "R: %0.4X E: %0.4X", data, pattern & 0x00FF);
+      DisplayBottom(text);
+      lcd_key = WaitKey();
+      if(lcd_key == btnSELECT)
+        return;
     }
   }
+  
+  DisplayTop("RAM OK");
+  sprintf(text, "0x%0.6lX-%0.6lX", startAddress, endAddress);
+  DisplayBottom(text);
+  WaitKey();
 }
+
+//  ----------------------------------------------------------------------------------------------------------------------------
+//  MENU Functions
+//  ----------------------------------------------------------------------------------------------------------------------------
+
+void SelectCheckROM()
+{
+  uint32_t startval, endval;
+  
+  DisplayTop("<ROM CRC>");
+  startval = SelectHex(0, 0x7FFFFF, 6, 1, 1, "start:");
+  endval = SelectHex(startval, 0x7FFFFF, 6, 1, 1, "  end:");
+  
+  CheckROM(startval, endval);
+}
+  
+void SelectCheckROMInterleaved()
+{
+  uint32_t startval, endval;
+  
+  DisplayTop("<ROM CRC Intlv>");
+  startval = SelectHex(0, 0x7FFFFF, 6, 1, 1, "start:");
+  endval = SelectHex(startval, 0x7FFFFF, 6, 1, 1, "  end:");
+  
+  CheckROMInterleaved(startval, endval);
+}
+
+void SelectCheckRAM()
+{
+  uint32_t startval, endval;
+  
+  DisplayTop("<Check RAM>");
+  startval = SelectHex(0, 0x7FFFFE, 6, 1, 1, "start:");
+  endval = SelectHex(startval, 0x7FFFFF, 6, 1, 1, "  end:");
+  
+  CheckRAM(startval, endval);
+}
+
+void SelectCheckRAMPattern()
+{
+  uint32_t startval, endval;
+  uint16_t pattern = 0xFFFF;
+  
+  DisplayTop("<Check RAM Ptn>");
+  startval = SelectHex(0, 0x7FFFFE, 6, 1, 1, "start:");
+  endval = SelectHex(startval, 0x7FFFFF, 6, 1, 1, "  end:");
+  pattern = SelectHex(0, 0xFFFF, 4, 1, 1, "pattern:");
+  
+  CheckRAMPattern(startval, endval, pattern);
+}
+
+void SelectCheckRAM8bit()
+{
+  uint32_t startval, endval;
+  
+  DisplayTop("<Check RAM 8>");
+  startval = SelectHex(0, 0x7FFFFE, 6, 1, 1, "start:");
+  endval = SelectHex(startval, 0x7FFFFF, 6, 1, 1, "  end:");
+  
+  CheckRAM8bit(startval, endval);
+}
+
+void SelectCheckRAM8bitPattern()
+{
+  uint32_t startval, endval;
+  uint8_t pattern = 0xFF;
+  
+  DisplayTop("<Check RAM 8Pt>");
+  startval = SelectHex(0, 0x7FFFFE, 6, 1, 1, "start:");
+  endval = SelectHex(startval, 0x7FFFFF, 6, 1, 1, "  end:");
+  pattern = SelectHex(0, 0xFF, 2, 1, 1, "pattern:");
+  
+  CheckRAM8bitPattern(startval, endval, pattern);
+}
+
+//  ----------------------------------------------------------------------------------------------------------------------------
+//  User Interface
+//  ----------------------------------------------------------------------------------------------------------------------------
+
+void DisplayIntro()
+{
+  Display("Ghetto 68000", "Artemio 2017");
+  delay(2000);
+}
+
 
 //  ----------------------------------------------------------------------------------------------------------------------------
 //  Main Loop
@@ -489,57 +584,17 @@ void setup()
                                  
 void loop() 
 {
-  Display("Press SELECT", "to check ROM");  
+  Display("Press SELECT", "to check PCB");  
   lcd_key = WaitKey();
 
-  if(lcd_key == btnSELECT)
-  {
-    uint32_t startval, endval;
-    
-    DisplayTop("<ROM CRC>");
-    startval = SelectHex(0, 0x7FFFFE, 6, 1, 1, "start:");
-    endval = SelectHex(startval, 0x7FFFFE, 6, 1, 1, "end:");
-    DisplayTop("<ROM CRC> ...");
-    CheckROMInterleaved(startval, endval);
-  }
-  
-  /*
-  Display("Press SELECT", "to check RAM");  
-  lcd_key = WaitKey();
-
-  if(lcd_key == btnSELECT)
-  {
-    Display("Checking RAM", "0x30000");  
-    //RAM shared with TMS320C10NL-14 protection microcontroller
-    CheckRAM(0x30000, 0x33fff);
-    Display("End Check", "");  
-    */
-
-    /*
-    Display("Checking RAM", "0x40000");  
-    //40000-40fff RAM sprite display properties (co-ordinates, character, color - etc)
-    CheckRAM(0x40fff, 0x40fff);
-
-    Display("Checking RAM", "0x50000");  
-    //50000-50dff Palette RAM
-    CheckRAM(0x50000, 0x50dff);
-
-    Display("Checking RAM", "0x7a000");  
-    //7a000-7abff RAM shared with Z80; 16-bit on this side, 8-bit on Z80 side
-    CheckRAM8bit(0x7a000, 0x7abff);
-    */
-
-    /*
-    //RAM shared with TMS320C10NL-14 protection microcontroller
-    CheckRAMPattern(0x30000, 0x33fff, 0xABAD);
-    //40000-40fff RAM sprite display properties (co-ordinates, character, color - etc)
-    CheckRAMPattern(0x40fff, 0x40fff, 0xABAD);
-    //50000-50dff Palette RAM
-    CheckRAMPattern(0x50000, 0x50dff, 0xABAD);
-    //7a000-7abff RAM shared with Z80; 16-bit on this side, 8-bit on Z80 side
-    CheckRAM8bitPattern(0x7a000, 0x7abff, 0xABAD);
-  }
-  */
+  CheckROMInterleaved(00000, 0x1ffff);
+  CheckRAM(0x30000, 0x33fff);
+  CheckRAM(0x40000, 0x40fff);
+  CheckRAM(0x50000, 0x50dff);
+  CheckRAM8bit(0x7a000, 0x7abff);
+ 
+  //if(lcd_key == btnSELECT)
+    //SelectCheckRAM();
 }
 
 
