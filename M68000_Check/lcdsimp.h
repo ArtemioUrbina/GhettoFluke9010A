@@ -49,7 +49,7 @@ int read_LCD_buttons()
 void DisplayTop(const char *text)
 {
   int len = 0;
-  char buffer[17];
+  char buffer[20];
 
   len = strlen(text);
   if(len < 16)
@@ -69,7 +69,7 @@ void DisplayTop(const char *text)
 void DisplayBottom(const char *text)
 {
   int len = 0;
-  char buffer[17];
+  char buffer[20];
 
   len = strlen(text);
   if(len < 16)
@@ -191,11 +191,14 @@ uint32_t SelectHex(uint32_t startVal, uint32_t endVal, uint8_t charCount, uint8_
   return value;
 }
 
+#define ResetProgress(startval, endval) \  
+    DisplayBottom("[--------------]"); __unit = (long)(endval - startval)/(uint32_t)15; __amount = 0; __last = (long)0xFF;
+
 #define StartProgress(startval, endval) \  
-    uint32_t __unit, __amount, __last; \  
-    DisplayBottom("[--------------]"); __unit = (endval - startval)/(uint32_t)15; __amount = 0; __last = (uint32_t)0xFFFF;
+    long __unit, __amount, __last; \  
+    ResetProgress(startval, endval)
 
 #define DisplayProgress(pos) \  
-    __amount = pos / __unit;  \  
+    __amount = (long)(pos/__unit);  \  
     if(__amount != __last) { lcd.setCursor((int)__amount, 1); lcd.print("*"); __last = __amount; }
 

@@ -1,16 +1,16 @@
 /*****************************************************************
- * 
- *   Ghetto Fluke 9010A 68k "pod"
- *       by Artemio Urbina 2017
- *       GNU GPL 2.0
- *   
- * 
- *   This is intended for Arcade PCB repair
- *   will have routines for ROM checksum, 
- *   RAM checking and step by step addressing
- *   of a memory map.
- *   
- *   Version 0.1: Added RAM check routines and basic functions
+
+     Ghetto Fluke 9010A 68k "pod"
+         by Artemio Urbina 2017
+         GNU GPL 2.0
+
+
+     This is intended for Arcade PCB repair
+     will have routines for ROM checksum,
+     RAM checking and step by step addressing
+     of a memory map.
+
+     Version 0.1: Added RAM check routines and basic functions
  *****************************************************************/
 
 #include "lcdsimp.h"
@@ -18,12 +18,12 @@
 
 
 //  ----------------------------------------------------------------------------------------------------------------------------
-//  M68000 interface pins (Free 0, 1, 10, 13)
+//  M68000 interface pins
 //  ----------------------------------------------------------------------------------------------------------------------------
 #define ADDR_L  23
 
 #define A01     46
-#define A02     48  
+#define A02     48
 #define A03     50
 #define A04     52
 #define A05     42
@@ -33,7 +33,7 @@
 #define A09     51
 #define A10     49
 #define A11     47
-#define A12     45  
+#define A12     45
 #define A13     43
 #define A14     41
 #define A15     39
@@ -43,13 +43,13 @@
 #define A19     31
 #define A20     29
 #define A21     27
-#define A22     25  
+#define A22     25
 #define A23     23
 
 #define DATA_L  16
 
-#define D00     14 
-#define D01     15  
+#define D00     14
+#define D01     15
 #define D02     16
 #define D03     17
 #define D04     18
@@ -59,25 +59,28 @@
 #define D08     22
 #define D09     24
 #define D10     26
-#define D11     28  
+#define D11     28
 #define D12     30
 #define D13     32
 #define D14     34
 #define D15     36
 
-#define RESET   11
 #define RW      13
 #define AS      44
-#define UDS     3
-#define LDS     9
+#define UDS_LDS 11
+#define DTACK   3
 
 int address_bus[ADDR_L] = { A01, A02, A03, A04, A05, A06, A07, A08, A09, A10,
-                      A11, A12, A13, A14, A15, A16, A17, A18, A19, A20,
-                      A21, A22, A23 };
+                            A11, A12, A13, A14, A15, A16, A17, A18, A19, A20,
+                            A21, A22, A23
+                          };
 
 int data_bus[DATA_L] = { D00, D01, D02, D03, D04, D05, D06, D07, D08, D09,
-                   D10, D11, D12, D13, D14, D15 };
+                         D10, D11, D12, D13, D14, D15
+                       };
 
+
+int err_DTACK_high = 0;
 
 //  ----------------------------------------------------------------------------------------------------------------------------
 //  Backend
@@ -87,40 +90,41 @@ void SetDataWrite()
 {
   int count = 0;
 
-  for(count = 0; count < DATA_L; count++)
-    pinMode(data_bus[count], OUTPUT); 
+  for (count = 0; count < DATA_L; count++)
+    pinMode(data_bus[count], OUTPUT);
+  err_DTACK_high = 0;
 }
 
 void SetDataRead()
 {
   int count = 0;
 
-  for(count = 0; count < DATA_L; count++)
-    pinMode(data_bus[count], INPUT); 
+  for (count = 0; count < DATA_L; count++)
+    pinMode(data_bus[count], INPUT);
+  err_DTACK_high = 0;
 }
 
 void PrepareOutput()
 {
   int count = 0;
 
-  for(count = 0; count < ADDR_L; count++)
-    pinMode(address_bus[count], OUTPUT); 
+  for (count = 0; count < ADDR_L; count++)
+    pinMode(address_bus[count], OUTPUT);
 
-  SetDataRead(); 
+  SetDataRead();
 
-  pinMode(AS, OUTPUT); 
-  pinMode(RW, OUTPUT); 
-  pinMode(RESET, INPUT); 
-  pinMode(UDS, OUTPUT); 
-  pinMode(LDS, OUTPUT); 
-  
-  for(count = 0; count < ADDR_L; count++)
+  pinMode(DTACK, INPUT);
+
+  pinMode(AS, OUTPUT);
+  pinMode(RW, OUTPUT);
+  pinMode(UDS_LDS, OUTPUT);
+
+  for (count = 0; count < ADDR_L; count++)
     digitalWrite(address_bus[count], LOW);
 
-  digitalWrite(AS, LOW);
+  digitalWrite(AS, HIGH);
   digitalWrite(RW, HIGH);
-  digitalWrite(UDS, LOW);
-  digitalWrite(LDS, LOW);
+  digitalWrite(UDS_LDS, HIGH); 
 }
 
 void SetAddress(uint32_t address)
@@ -129,16 +133,16 @@ void SetAddress(uint32_t address)
   uint8_t bits[8];
   uint8_t cByte = 0;
 
-  for(pos = 0; pos < 4; pos ++)
+  for (pos = 0; pos < 4; pos ++)
   {
     cByte = (address & (uint32_t)0xFF000000) >> 24;
     address = address << 8;
-    for (b = 7; b > -1; b--) 
-    {  
-      if(start++ > 7) // We start at Address 23
+    for (b = 7; b > -1; b--)
+    {
+      if (start++ > 7) // We start at Address 23
       {
         bits[b] = (cByte & (1 << b)) != 0;
-        if(bits[b] == 1)
+        if (bits[b] == 1)
           digitalWrite(address_bus[count], HIGH);
         else
           digitalWrite(address_bus[count], LOW);
@@ -146,6 +150,40 @@ void SetAddress(uint32_t address)
       }
     }
   }
+}
+
+inline void WaitForData()
+{
+  unsigned long _start = 0, _current;
+
+  if(err_DTACK_high && digitalRead(DTACK) != LOW)
+    return;
+ 
+  _start = millis();
+  while(digitalRead(DTACK) != LOW)
+  {
+    _current = millis();
+    if(_current - _start >= 5000)
+    {
+        Display("No DTACK signal", "Ignoring");
+        err_DTACK_high = 1;
+        WaitKey();
+        delay(1000);
+        return;
+    }
+  }
+  
+  err_DTACK_high = 0;
+}
+
+inline void RequestDataReady()
+{
+  digitalWrite(UDS_LDS, LOW);
+}
+
+inline void EndRequestDataReady()
+{
+  digitalWrite(UDS_LDS, HIGH);
 }
 
 inline void RequestAddress()
@@ -158,16 +196,26 @@ inline void EndRequestAddress()
   digitalWrite(AS, HIGH);
 }
 
+inline void EnableRead()
+{
+  digitalWrite(RW, HIGH);
+}
+
+inline void EnableWrite()
+{
+  digitalWrite(RW, LOW);
+}
+
 inline void SetReadDataFromBus()
 {
-  SetDataRead(); 
-  digitalWrite(RW, HIGH);
+  SetDataRead();
+  EnableRead();
 }
 
 inline void SetWriteDataToBus()
 {
-  SetDataWrite(); 
-  digitalWrite(RW, LOW);
+  SetDataWrite();
+  EnableRead();
 }
 
 void SetData(uint16_t data)
@@ -176,14 +224,14 @@ void SetData(uint16_t data)
   uint8_t bits[8];
   uint8_t cByte = 0;
 
-  for(pos = 0; pos < 2; pos ++)
+  for (pos = 0; pos < 2; pos ++)
   {
     cByte = (data & 0xFF00) >> 8;
     data = data << 8;
-    for (b = 7; b > -1; b--) 
-    {  
+    for (b = 7; b > -1; b--)
+    {
       bits[b] = (cByte & (1 << b)) != 0;
-      if(bits[b] == 1)
+      if (bits[b] == 1)
         digitalWrite(data_bus[count], HIGH);
       else
         digitalWrite(data_bus[count], LOW);
@@ -197,10 +245,46 @@ uint16_t ReadData()
   int count = 0;
   uint16_t data = 0;
 
-  for(count = DATA_L - 1; count >= 0; count--)
+  WaitForData();
+  for (count = DATA_L - 1; count >= 0; count--)
     data = (data << 1) | digitalRead(data_bus[count]);
+
+  return data;
+}
+
+inline uint16_t ReadDataFrom(uint32_t address)
+{
+  uint16_t data;
+
+  EnableRead();
+  SetAddress(address);
+  RequestAddress();
+  RequestDataReady();
+
+  data = ReadData();
+  
+  EndRequestDataReady();
+  EndRequestAddress();
   
   return data;
+}
+
+inline void WriteDataTo(uint32_t address, uint16_t data)
+{
+  SetAddress(address);
+  RequestAddress();
+  EnableWrite();
+  
+  SetData(data);
+  RequestDataReady();
+
+  WaitForData();
+  
+  EndRequestDataReady();
+  EndRequestAddress();
+  EnableRead();
+
+  SetData(0);
 }
 
 
@@ -217,24 +301,23 @@ void CheckROM(uint32_t startAddress, uint32_t endAddress)
 
   DisplayTop("<ROM CRC> ...");
   StartProgress(startAddress, endAddress);
-  for(address = startAddress; address < endAddress; address+=2)
+
+  SetReadDataFromBus();
+  for (address = startAddress; address < endAddress; address += 2)
   {
     uint16_t data = 0;
     uint8_t mbyte = 0;
 
-    SetAddress(address);
-    RequestAddress();
-    
-    data = ReadData();
-    mbyte = (data & 0xFF00) >> 8;
-    crc.update(mbyte);
+    data = ReadDataFrom(address);
+
     mbyte = data & 0x00FF;
+    crc.update(mbyte);
+    mbyte = (data & 0xFF00) >> 8;
     crc.update(mbyte);
 
     DisplayProgress(address);
-    EndRequestAddress();
   }
-  
+
   checksum = crc.finalize();
   sprintf(text, "ROM: 0x%lX", checksum);
   DisplayBottom(text);
@@ -250,29 +333,27 @@ void CheckROMInterleaved(uint32_t startAddress, uint32_t endAddress)
 
   DisplayTop("<ROM CRC> ...");
   StartProgress(startAddress, endAddress);
-  for(address = startAddress; address < endAddress; address+=2)
+
+  SetReadDataFromBus();
+  for (address = startAddress; address < endAddress; address += 2)
   {
     uint16_t data = 0;
     uint8_t mbyte = 0;
 
-    SetAddress(address);
-    RequestAddress();
+    data = ReadDataFrom(address);
     
-    data = ReadData();
     mbyte = (data & 0xFF00) >> 8;
     crc1.update(mbyte);
     mbyte = data & 0x00FF;
     crc2.update(mbyte);
     
-    EndRequestAddress();
-    
     DisplayProgress(address);
   }
-  
+
   checksum1 = crc1.finalize();
   sprintf(text, "ROM1: 0x%lX", checksum1);
   DisplayTop(text);
-  
+
   checksum2 = crc2.finalize();
   sprintf(text, "ROM2: 0x%lX", checksum2);
   DisplayBottom(text);
@@ -282,50 +363,47 @@ void CheckROMInterleaved(uint32_t startAddress, uint32_t endAddress)
 void CheckRAM(uint32_t startAddress, uint32_t endAddress)
 {
   uint32_t address = 0;
-  uint16_t data = 0;
+  uint16_t data = 0, pattern[2] = { 0xAA55, 0x55AA}, alter = 0;
   char text[40];
 
   DisplayTop("<Write RAM> ...");
   StartProgress(startAddress, endAddress);
-  
+
   SetWriteDataToBus();
-  for(address = startAddress; address < endAddress; address+=2)
+  for (address = startAddress; address < endAddress; address += 2)
   {
-    SetAddress(address);
-    RequestAddress();
-    
-    SetData(address);
-      
-    EndRequestAddress();
+    WriteDataTo(address, pattern[alter]);
+    alter = !alter;
     
     DisplayProgress(address);
   }
-  
-  DisplayTop("<Read RAM> ...");
-  SetReadDataFromBus();
-  for(address = startAddress; address < endAddress; address+=2)
-  {
-    SetAddress(address);
-    RequestAddress();
-    
-    data = ReadData();
-    EndRequestAddress();
 
-    DisplayProgress(address);
-    if(data != (0x0000FFFF & address))
+  DisplayTop("<Read RAM> ...");
+  ResetProgress(startAddress, endAddress);
+
+  alter = 0;
+  SetReadDataFromBus();
+  for (address = startAddress; address < endAddress; address += 2)
+  {
+    data = ReadDataFrom(address);
+    
+    if (data != pattern[alter])
     {
       sprintf(text, "Error @ 0x%0.6lX", address);
       DisplayTop(text);
-      
-      sprintf(text, "R: %0.4X E: %0.4X", data, 0x0000FFFF & address);
+
+      sprintf(text, "R: %0.4X E: %0.4X", data, pattern[alter]);
       DisplayBottom(text);
       lcd_key = WaitKey();
-      if(lcd_key == btnSELECT)
+      if (lcd_key == btnSELECT)
         return;
     }
-  }
+    alter = !alter;
   
-  DisplayTop("RAM OK");
+    DisplayProgress(address);
+  }
+
+  DisplayTop("RAM OK AA55-55AA");
   sprintf(text, "0x%0.6lX-%0.6lX", startAddress, endAddress);
   DisplayBottom(text);
   WaitKey();
@@ -339,44 +417,39 @@ void CheckRAMPattern(uint32_t startAddress, uint32_t endAddress, uint16_t patter
 
   DisplayTop("<Write RAM> ...");
   StartProgress(startAddress, endAddress);
-  
-  SetWriteDataToBus();
-  for(address = startAddress; address < endAddress; address+=2)
-  {
-    SetAddress(address);
-    RequestAddress();
 
-    SetData(pattern);
-      
-    EndRequestAddress();
+  SetWriteDataToBus();
+  for (address = startAddress; address < endAddress; address += 2)
+  {
+    WriteDataTo(address, pattern);
+    
     DisplayProgress(address);
   }
-  
-  DisplayTop("<Read RAM> ...");
-  SetReadDataFromBus();
-  for(address = startAddress; address < endAddress; address+=2)
-  {
-    SetAddress(address);
-    RequestAddress();
-    
-    data = ReadData();
-    EndRequestAddress();
 
-    DisplayProgress(address);
-    if(data != pattern)
+  DisplayTop("<Read RAM> ...");
+  ResetProgress(startAddress, endAddress);
+
+  SetReadDataFromBus();
+  for (address = startAddress; address < endAddress; address += 2)
+  {
+    data = ReadDataFrom(address);
+
+    if (data != pattern)
     {
       sprintf(text, "Error @ 0x%0.6lX", address);
       DisplayTop(text);
-      
+
       sprintf(text, "R: %0.4X E: %0.4X", data, pattern);
       DisplayBottom(text);
       lcd_key = WaitKey();
-      if(lcd_key == btnSELECT)
+      if (lcd_key == btnSELECT)
         return;
     }
+    DisplayProgress(address);
   }
-  
-  DisplayTop("RAM OK");
+
+  sprintf(text, "RAM OK - 0x%0.4X", pattern);
+  DisplayTop(text);
   sprintf(text, "0x%0.6lX-%0.6lX", startAddress, endAddress);
   DisplayBottom(text);
   WaitKey();
@@ -385,49 +458,45 @@ void CheckRAMPattern(uint32_t startAddress, uint32_t endAddress, uint16_t patter
 void CheckRAM8bit(uint32_t startAddress, uint32_t endAddress)
 {
   uint32_t address = 0;
-  uint16_t data = 0;
+  uint16_t data = 0, pattern[2] = { 0x5A, 0xA5}, alter = 0;;
   char text[40];
 
   DisplayTop("<Write RAM> ...");
   StartProgress(startAddress, endAddress);
-  
+
   SetWriteDataToBus();
-  for(address = startAddress; address < endAddress; address+=2)
+  for (address = startAddress; address < endAddress; address += 2)
   {
-    SetAddress(address);
-    RequestAddress();
-    
-    SetData(address);
-      
-    EndRequestAddress();
-    DisplayProgress(address);
-  }
-  
-  DisplayTop("<Read RAM> ...");
-  SetReadDataFromBus();
-  for(address = startAddress; address < endAddress; address+=2)
-  {
-    SetAddress(address);
-    RequestAddress();
-    
-    data = ReadData();
-    EndRequestAddress();
+    WriteDataTo(address, pattern[alter]);
+    alter = !alter;
 
     DisplayProgress(address);
-    if((data & 0x00FF) != (0x000000FF & address))
+  }
+
+  DisplayTop("<Read RAM> ...");
+  ResetProgress(startAddress, endAddress);
+  SetReadDataFromBus();
+
+  for (address = startAddress; address < endAddress; address += 2)
+  {
+    data = ReadDataFrom(address);
+
+    if ((data & 0x00FF) != pattern[alter])
     {
       sprintf(text, "Error @ 0x%0.6lX", address);
       DisplayTop(text);
-      
-      sprintf(text, "R: %0.4X E: %0.4X", data, 0x000000FF & address);
+
+      sprintf(text, "R: %0.4X E: %0.4X", data, pattern[alter]);
       DisplayBottom(text);
       lcd_key = WaitKey();
-      if(lcd_key == btnSELECT)
+      if (lcd_key == btnSELECT)
         return;
     }
+    DisplayProgress(address);
+    alter = !alter;
   }
-  
-  DisplayTop("RAM OK");
+
+  DisplayTop("RAM OK 0x5A-A5");
   sprintf(text, "0x%0.6lX-%0.6lX", startAddress, endAddress);
   DisplayBottom(text);
   WaitKey();
@@ -441,44 +510,40 @@ void CheckRAM8bitPattern(uint32_t startAddress, uint32_t endAddress, uint16_t pa
 
   DisplayTop("<Write RAM> ...");
   StartProgress(startAddress, endAddress);
-  
-  SetWriteDataToBus();
-  for(address = startAddress; address < endAddress; address+=2)
-  {
-    SetAddress(address);
-    RequestAddress();
 
-    SetData(pattern);
-      
-    EndRequestAddress();
+  SetWriteDataToBus();
+  for (address = startAddress; address < endAddress; address += 2)
+  {
+    WriteDataTo(address, pattern);
+    
     DisplayProgress(address);
   }
-  
-  DisplayTop("<Read RAM> ...");
-  SetReadDataFromBus();
-  for(address = startAddress; address < endAddress; address+=2)
-  {
-    SetAddress(address);
-    RequestAddress();
-    
-    data = ReadData();
-    EndRequestAddress();
+  SetData(0);
 
-    DisplayProgress(address);
-    if((data & 0x00FF) != (pattern & 0x00FF))
+  DisplayTop("<Read RAM> ...");
+  ResetProgress(startAddress, endAddress);
+  SetReadDataFromBus();
+
+  for (address = startAddress; address < endAddress; address += 2)
+  {
+    data = ReadDataFrom(address);
+
+    if ((data & 0x00FF) != (pattern & 0x00FF))
     {
       sprintf(text, "Error @ 0x%0.6lX", address);
       DisplayTop(text);
-      
+
       printf(text, "R: %0.4X E: %0.4X", data, pattern & 0x00FF);
       DisplayBottom(text);
       lcd_key = WaitKey();
-      if(lcd_key == btnSELECT)
+      if (lcd_key == btnSELECT)
         return;
     }
+    DisplayProgress(address);
   }
-  
-  DisplayTop("RAM OK");
+
+  sprintf(text, "RAM OK - 0x%0.2X", pattern & 0x00FF);
+  DisplayTop(text);
   sprintf(text, "0x%0.6lX-%0.6lX", startAddress, endAddress);
   DisplayBottom(text);
   WaitKey();
@@ -491,33 +556,33 @@ void CheckRAM8bitPattern(uint32_t startAddress, uint32_t endAddress, uint16_t pa
 void SelectCheckROM()
 {
   uint32_t startval, endval;
-  
+
   DisplayTop("<ROM CRC>");
   startval = SelectHex(0, 0x7FFFFF, 6, 1, 1, "start:");
   endval = SelectHex(startval, 0x7FFFFF, 6, 1, 1, "  end:");
-  
+
   CheckROM(startval, endval);
 }
-  
+
 void SelectCheckROMInterleaved()
 {
   uint32_t startval, endval;
-  
+
   DisplayTop("<ROM CRC Intlv>");
   startval = SelectHex(0, 0x7FFFFF, 6, 1, 1, "start:");
   endval = SelectHex(startval, 0x7FFFFF, 6, 1, 1, "  end:");
-  
+
   CheckROMInterleaved(startval, endval);
 }
 
 void SelectCheckRAM()
 {
   uint32_t startval, endval;
-  
+
   DisplayTop("<Check RAM>");
   startval = SelectHex(0, 0x7FFFFE, 6, 1, 1, "start:");
   endval = SelectHex(startval, 0x7FFFFF, 6, 1, 1, "  end:");
-  
+
   CheckRAM(startval, endval);
 }
 
@@ -525,23 +590,23 @@ void SelectCheckRAMPattern()
 {
   uint32_t startval, endval;
   uint16_t pattern = 0xFFFF;
-  
+
   DisplayTop("<Check RAM Ptn>");
   startval = SelectHex(0, 0x7FFFFE, 6, 1, 1, "start:");
   endval = SelectHex(startval, 0x7FFFFF, 6, 1, 1, "  end:");
   pattern = SelectHex(0, 0xFFFF, 4, 1, 1, "pattern:");
-  
+
   CheckRAMPattern(startval, endval, pattern);
 }
 
 void SelectCheckRAM8bit()
 {
   uint32_t startval, endval;
-  
+
   DisplayTop("<Check RAM 8>");
   startval = SelectHex(0, 0x7FFFFE, 6, 1, 1, "start:");
   endval = SelectHex(startval, 0x7FFFFF, 6, 1, 1, "  end:");
-  
+
   CheckRAM8bit(startval, endval);
 }
 
@@ -549,12 +614,12 @@ void SelectCheckRAM8bitPattern()
 {
   uint32_t startval, endval;
   uint8_t pattern = 0xFF;
-  
+
   DisplayTop("<Check RAM 8Pt>");
   startval = SelectHex(0, 0x7FFFFE, 6, 1, 1, "start:");
   endval = SelectHex(startval, 0x7FFFFF, 6, 1, 1, "  end:");
   pattern = SelectHex(0, 0xFF, 2, 1, 1, "pattern:");
-  
+
   CheckRAM8bitPattern(startval, endval, pattern);
 }
 
@@ -573,28 +638,422 @@ void DisplayIntro()
 //  Main Loop
 //  ----------------------------------------------------------------------------------------------------------------------------
 
-void setup() 
+void setup()
 {
   initLCD();
   PrepareOutput();
   DisplayIntro();
-  
+
   Serial.begin(115200);
 }
-                                 
-void loop() 
+
+
+void CheckRAMContinuous(uint32_t startAddress, uint32_t endAddress)
 {
-  Display("Press SELECT", "to check PCB");  
+  uint32_t address = 0;
+  uint16_t data = 0;
+  char text[40];
+
+  sprintf(text, "W:0x%0.6lX-%0.6lX", startAddress, endAddress);
+  DisplayTop(text);
+
+  StartProgress(startAddress, endAddress);
+
+  SetWriteDataToBus();
+  for (address = startAddress; address < endAddress; address += 2)
+  {
+    WriteDataTo(address, address);
+    delay(1);
+
+    DisplayProgress(address);
+  }
+  SetData(0);
+
+  sprintf(text, "R:0x%0.6lX-%0.6lX", startAddress, endAddress);
+  DisplayTop(text);
+  ResetProgress(startAddress, endAddress);
+
+  SetReadDataFromBus();
+  for (address = startAddress; address < endAddress; address += 2)
+  {
+    data = ReadDataFrom(address);
+    delay(1);
+
+    DisplayProgress(address);
+    /*
+      if(data != (0x0000FFFF & address))
+      {
+      sprintf(text, "Error @ 0x%0.6lX", address);
+      DisplayTop(text);
+
+      sprintf(text, "R: %0.4X E: %0.4X", data, 0x0000FFFF & address);
+      DisplayBottom(text);
+
+      delay(100);
+      }
+    */
+  }
+}
+
+uint16_t palette[] = {0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000,
+                      0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000,
+                      0x0010, 0x6BFA, 0x57F5, 0x3B8E, 0x26C9, 0x1E47, 0x01C4, 0x0164,
+                      0x739C, 0x5AD6, 0x4210, 0x318C, 0x02DF, 0x001F, 0x7FFF, 0x0000,
+                      0x0180, 0x7F54, 0x7ACC, 0x6A04, 0x5980, 0x5100, 0x3CC0, 0x739C,
+                      0x5AD6, 0x4210, 0x318C, 0x031F, 0x021C, 0x0098, 0x7FFF, 0x0000,
+                      0x7C00, 0x73BF, 0x4ABC, 0x31D4, 0x298E, 0x03FF, 0x033B, 0x0256,
+                      0x7F57, 0x6EB0, 0x520C, 0x4148, 0x001F, 0x3FE0, 0x7FFF, 0x0000,
+                      0x0180, 0x529F, 0x319E, 0x0018, 0x0013, 0x000F, 0x000D, 0x6FDE,
+                      0x5318, 0x3E52, 0x2DCE, 0x001E, 0x039F, 0x7EC0, 0x7FFF, 0x0000,
+                      0x2108, 0x7FFF, 0x6BFF, 0x5B7C, 0x4AF8, 0x3A74, 0x2E11, 0x21AE,
+                      0x154B, 0x7F80, 0x5C0B, 0x02DF, 0x01D8, 0x0012, 0x7FFF, 0x0000,
+                      0x0231, 0x639F, 0x42FD, 0x325B, 0x21D7, 0x1153, 0x010F, 0x77FD,
+                      0x5B16, 0x3E0F, 0x2DAB, 0x031F, 0x7E80, 0x7FF0, 0x7FFF, 0x0000,
+                      0x3000, 0x7FBF, 0x771E, 0x6678, 0x55F2, 0x41AF, 0x356C, 0x77FE,
+                      0x5B58, 0x3A51, 0x29CC, 0x001E, 0x039F, 0x7EC0, 0x7FFF, 0x0000,
+                      0x01C0, 0x7FFF, 0x7BFF, 0x6F9B, 0x5AF9, 0x4A95, 0x3A12, 0x31D0,
+                      0x298E, 0x014C, 0x2A7C, 0x01F7, 0x01B2, 0x016E, 0x7FFF, 0x0000,
+                      0x7C00, 0x6BFF, 0x4B1C, 0x42B8, 0x2214, 0x1990, 0x77FC, 0x62F6,
+                      0x3DEE, 0x318B, 0x02DF, 0x021A, 0x0155, 0x001F, 0x7FFF, 0x0000,
+                      0x318C, 0x6BFA, 0x5BD5, 0x4ED1, 0x364F, 0x2DCC, 0x56BD, 0x41D6,
+                      0x2D31, 0x24EE, 0x7FDE, 0x6E73, 0x41CE, 0x7FFF, 0x7FFF, 0x0000,
+                      0x3C00, 0x03FF, 0x039F, 0x02FC, 0x0258, 0x01D4, 0x0150, 0x7F9C,
+                      0x7ED6, 0x6652, 0x55EF, 0x456B, 0x4210, 0x001F, 0x7FFF, 0x0000,
+                      0x0231, 0x5735, 0x4AB2, 0x4270, 0x3A0E, 0x31CD, 0x29AC, 0x218B,
+                      0x3634, 0x2E13, 0x25F2, 0x1DB0, 0x198E, 0x156C, 0x001F, 0x0000,
+                      0x3000, 0x6BFA, 0x4B92, 0x3AEE, 0x2A4A, 0x19C6, 0x0160, 0x6FBE,
+                      0x56F8, 0x3E32, 0x298D, 0x001C, 0x035F, 0x7E80, 0x7FFF, 0x0000,
+                      0x7C00, 0x7FFF, 0x6B7F, 0x5AFD, 0x4E9A, 0x4237, 0x35D5, 0x01B1,
+                      0x014E, 0x57FF, 0x437A, 0x2AB4, 0x1A30, 0x01CC, 0x7FFF, 0x008A,
+                      0x2940, 0x5B3F, 0x4A7F, 0x39DD, 0x2956, 0x2952, 0x294E, 0x73BC,
+                      0x5F17, 0x52B4, 0x4651, 0x3E0F, 0x35CD, 0x31AC, 0x7FFF, 0x0000,
+                      0x3000, 0x67DE, 0x5B18, 0x4694, 0x31EF, 0x298C, 0x214A, 0x7BDE,
+                      0x6739, 0x4A52, 0x35AD, 0x001E, 0x039F, 0x7EC0, 0x7FFF, 0x0000,
+                      0x292A, 0x7F3F, 0x72BB, 0x6236, 0x5DF4, 0x55B2, 0x4D90, 0x416E,
+                      0x354C, 0x6F9B, 0x52B4, 0x4230, 0x31AC, 0x296A, 0x7FFF, 0x0421,
+                      0x30CA, 0x3E9A, 0x3636, 0x2DD3, 0x2190, 0x016C, 0x016A, 0x63FF,
+                      0x43FF, 0x3B5F, 0x7EA0, 0x7D80, 0x6B28, 0x4E40, 0x575F, 0x0000,
+                      0x0100, 0x7FFF, 0x7F7C, 0x7A99, 0x71D6, 0x6171, 0x500D, 0x4FFF,
+                      0x27BF, 0x3A9F, 0x7F5F, 0x7E7F, 0x641F, 0x401C, 0x7FFF, 0x0421,
+                      0x0140, 0x73DE, 0x5F39, 0x4EB5, 0x3E31, 0x31CE, 0x256B, 0x7FE0,
+                      0x7EC0, 0x79E0, 0x5C00, 0x7EDF, 0x65DF, 0x4417, 0x7FFF, 0x0421,
+                      0x2108, 0x03FF, 0x4FF9, 0x4FA0, 0x5F20, 0x6EC0, 0x7F7E, 0x7E9A,
+                      0x7E15, 0x7D50, 0x6800, 0x7E9F, 0x7F7F, 0x5A40, 0x7FFF, 0x0421,
+                      0x2000, 0x6FFB, 0x57F5, 0x4751, 0x3ECF, 0x322D, 0x29C0, 0x001F,
+                      0x001A, 0x0012, 0x7C14, 0x03FF, 0x031C, 0x0256, 0x7FFF, 0x0000,
+                      0x000C, 0x7FE0, 0x7F00, 0x6E60, 0x59C0, 0x4540, 0x3080, 0x5BDF,
+                      0x431B, 0x2635, 0x15B0, 0x03E0, 0x0200, 0x015D, 0x7FFF, 0x0000,
+                      0x1084, 0x6FD7, 0x5B33, 0x4AAF, 0x3E4C, 0x31C9, 0x2566, 0x43FF,
+                      0x2B3B, 0x1E75, 0x15F1, 0x7F54, 0x7240, 0x51C0, 0x7FFF, 0x0000,
+                      0x0200, 0x73FF, 0x5F5A, 0x4AB5, 0x3A31, 0x29CE, 0x1D6B, 0x43F6,
+                      0x3332, 0x226E, 0x11CB, 0x529F, 0x001C, 0x0014, 0x7FFF, 0x0000,
+                      0x4000, 0x73FF, 0x6BFD, 0x5B5A, 0x42D7, 0x3E55, 0x31F0, 0x01AC,
+                      0x0149, 0x4E7F, 0x001A, 0x0013, 0x000E, 0x03E0, 0x7FFF, 0x0000,
+                      0x7C00, 0x6FFF, 0x67DD, 0x5759, 0x4AF6, 0x3A72, 0x2E0F, 0x25CD,
+                      0x1D8B, 0x7F20, 0x6680, 0x55C0, 0x4980, 0x3C00, 0x7FFF, 0x0000,
+                      0x0200, 0x7FFE, 0x7FBA, 0x6B14, 0x5670, 0x49EC, 0x3989, 0x037F,
+                      0x029D, 0x01D7, 0x0012, 0x420F, 0x318B, 0x294A, 0x7FFF, 0x0000,
+                      0x0200, 0x7FFE, 0x7FBA, 0x62D2, 0x4A0D, 0x3989, 0x3140, 0x7F60,
+                      0x7680, 0x5DC0, 0x4800, 0x001F, 0x0016, 0x000E, 0x7FFF, 0x0000,
+                      0x0200, 0x035F, 0x02DF, 0x025B, 0x01D7, 0x0153, 0x000F, 0x739C,
+                      0x56B5, 0x4210, 0x318C, 0x001F, 0x7E80, 0x7FF4, 0x7FFF, 0x0000,
+                      0x0200, 0x7FBC, 0x7714, 0x5E71, 0x4E0F, 0x45CD, 0x398C, 0x314A,
+                      0x769F, 0x5DDA, 0x4012, 0x639F, 0x4EFA, 0x3656, 0x7FFF, 0x0000,
+                      0x0211, 0x6F9D, 0x633A, 0x56D7, 0x3E53, 0x2DAF, 0x256B, 0x5FD6,
+                      0x4B52, 0x36CB, 0x2A49, 0x0018, 0x0011, 0x03FF, 0x7FFF, 0x0000,
+                      0x7C00, 0x6BFF, 0x4AFE, 0x427A, 0x1DD5, 0x0171, 0x03FF, 0x037D,
+                      0x02B8, 0x0254, 0x03E0, 0x0340, 0x0280, 0x0220, 0x7FFF, 0x0000,
+                      0x7C00, 0x6BFF, 0x4AFE, 0x427A, 0x1DD5, 0x0171, 0x029F, 0x001F,
+                      0x0015, 0x000F, 0x03E0, 0x0340, 0x0280, 0x0220, 0x7FFF, 0x0000,
+                      0x03E0, 0x56BF, 0x319F, 0x253D, 0x0018, 0x0014, 0x0010, 0x7FE0,
+                      0x7EE0, 0x5E40, 0x035F, 0x6F99, 0x524F, 0x3DAC, 0x7FFF, 0x0421,
+                      0x0210, 0x7FFD, 0x7F77, 0x6E6F, 0x55C9, 0x3D80, 0x77BE, 0x56B6,
+                      0x3DF0, 0x2D6C, 0x02FD, 0x0236, 0x0190, 0x3BC0, 0x7FFF, 0x0000,
+                      0x294A, 0x02FF, 0x027B, 0x01F7, 0x0172, 0x00EF, 0x7FF6, 0x76F1,
+                      0x59EF, 0x456D, 0x76FF, 0x5A3F, 0x40F7, 0x3011, 0x7FFF, 0x0000,
+                      0x7C00, 0x4F3F, 0x327B, 0x01F5, 0x0110, 0x7B1E, 0x5E97, 0x4A12,
+                      0x39AF, 0x527D, 0x441D, 0x3C15, 0x3010, 0x0340, 0x7FFF, 0x0000,
+                      0x3231, 0x7F7D, 0x6AF7, 0x5E94, 0x4E0F, 0x3DAC, 0x2D4A, 0x7FE0,
+                      0x66E0, 0x5640, 0x321F, 0x0019, 0x0013, 0x037F, 0x7FFF, 0x0000,
+                      0x3DEA, 0x7EBF, 0x75DC, 0x5177, 0x3D14, 0x2CF1, 0x20CE, 0x5F7C,
+                      0x4EB6, 0x35F0, 0x7FE0, 0x32BC, 0x0216, 0x01B4, 0x7FFF, 0x0000,
+                      0x0231, 0x5B3F, 0x42BC, 0x2DF6, 0x2190, 0x5F9C, 0x4AD6, 0x3A31,
+                      0x31CE, 0x67F9, 0x4B52, 0x3E8F, 0x21E8, 0x2C19, 0x7FFF, 0x0000,
+                      0x4631, 0x67D9, 0x5B77, 0x46F4, 0x3E90, 0x320C, 0x25A9, 0x2E9E,
+                      0x223B, 0x15D7, 0x0174, 0x0111, 0x00AE, 0x7EE0, 0x7FFF, 0x0000,
+                      0x0000, 0x7797, 0x62F5, 0x5271, 0x460E, 0x3DCD, 0x316A, 0x56B8,
+                      0x4E75, 0x4212, 0x3DD0, 0x398E, 0x352C, 0x310B, 0x7FFF, 0x0000,
+                      0x0211, 0x7FFA, 0x7F77, 0x6EF4, 0x6691, 0x522E, 0x41CC, 0x396C,
+                      0x6FFF, 0x5B5B, 0x3E53, 0x2DAE, 0x216B, 0x031F, 0x7FFF, 0x0000,
+                      0x0000, 0x5FFF, 0x37DF, 0x335E, 0x2EBA, 0x2A56, 0x25F3, 0x1D8F,
+                      0x1D4E, 0x73FD, 0x5B97, 0x4A91, 0x3E0C, 0x31EB, 0x7FFF, 0x0000,
+                      0x29E0, 0x6FFF, 0x639F, 0x56FA, 0x4655, 0x35D1, 0x254D, 0x73FC,
+                      0x5F57, 0x4ED3, 0x3A2E, 0x29AA, 0x7C18, 0x5413, 0x7FFF, 0x0000,
+                      0x0211, 0x537C, 0x36B8, 0x2E34, 0x25D1, 0x298F, 0x212D, 0x6BFB,
+                      0x2FB8, 0x2B32, 0x2AAF, 0x2A0A, 0x298A, 0x290A, 0x7FFF, 0x0000,
+                      0x30CA, 0x429F, 0x361A, 0x35D6, 0x3191, 0x2D2D, 0x2D0A, 0x7EE0,
+                      0x6E20, 0x5000, 0x4A92, 0x3A0E, 0x2DAB, 0x5B5F, 0x7BFF, 0x0000,
+                      0x0000, 0x57BF, 0x2EBE, 0x2994, 0x7F80, 0x79C0, 0x7ADA, 0x6DF4,
+                      0x3CB0, 0x53A5, 0x2600, 0x03FF, 0x318E, 0x001F, 0x7FFF, 0x000C,
+                      0x4000, 0x7F7F, 0x6EFB, 0x5E77, 0x4DF3, 0x3D6F, 0x2CEB, 0x1C6A,
+                      0x0009, 0x5F7F, 0x4EFB, 0x3E77, 0x3DF3, 0x3D6F, 0x7FFF, 0x0008,
+                      0x0000, 0x6B5A, 0x4A52, 0x318C, 0x5294, 0x39CE, 0x6318, 0x4A52,
+                      0x294A, 0x4210, 0x2108, 0x5AD6, 0x294A, 0x318C, 0x739C, 0x18C6,
+                      0x0200, 0x7FF8, 0x7F94, 0x6710, 0x4A2C, 0x2D6A, 0x0108, 0x039F,
+                      0x02DF, 0x01DC, 0x0175, 0x0010, 0x000B, 0x7C00, 0x7FFF, 0x0000,
+                      0x0200, 0x7FFF, 0x7FFF, 0x7FFF, 0x7FFF, 0x7FFF, 0x7FFF, 0x7FFF,
+                      0x7FFF, 0x7FFF, 0x7FFF, 0x7FFF, 0x7FFF, 0x7FFF, 0x7FFF, 0x0000,
+                      0x0200, 0x73FF, 0x3FFF, 0x37DA, 0x27B2, 0x0370, 0x032C, 0x02E8,
+                      0x0264, 0x0200, 0x01C0, 0x0180, 0x0140, 0x7C1F, 0x7FFF, 0x0000,
+                      0x0180, 0x7FFF, 0x63FF, 0x63DF, 0x633E, 0x629B, 0x6198, 0x5154,
+                      0x4412, 0x380E, 0x300C, 0x2C0B, 0x280A, 0x7FF3, 0x7FFF, 0x0000,
+                      0x0200, 0x7FFA, 0x7F99, 0x7ED8, 0x7117, 0x6016, 0x5015, 0x53FF,
+                      0x43FF, 0x331F, 0x229E, 0x021C, 0x0018, 0x0014, 0x7FFF, 0x0000,
+                      0x4000, 0x03DF, 0x02DA, 0x0256, 0x01D2, 0x014E, 0x000A, 0x0000,
+                      0x001F, 0x001F, 0x001C, 0x0018, 0x0014, 0x0018, 0x7FFF, 0x0000,
+                      0x4000, 0x7FFC, 0x7FF8, 0x6F94, 0x5F10, 0x4A8C, 0x3208, 0x2988,
+                      0x7F1F, 0x7A9F, 0x69DE, 0x581A, 0x001F, 0x031F, 0x7FFF, 0x0000,
+                      0x4000, 0x7BFF, 0x5BFF, 0x4B9E, 0x3B1A, 0x2A96, 0x0212, 0x018E,
+                      0x001F, 0x001F, 0x001C, 0x0018, 0x029F, 0x001F, 0x7FFF, 0x0000,
+                      0x39CE, 0x001F, 0x0014, 0x000C, 0x03E0, 0x0280, 0x0180, 0x7C00,
+                      0x5000, 0x3000, 0x03FF, 0x0294, 0x018C, 0x7FE0, 0x5280, 0x3180,
+                      0x0200, 0x6BFF, 0x57FF, 0x47FF, 0x377F, 0x26FD, 0x023B, 0x0198,
+                      0x0015, 0x0012, 0x000F, 0x000D, 0x000C, 0x7E13, 0x7FFF, 0x0004,
+                      0x0200, 0x5DFF, 0x4E7F, 0x3EFB, 0x2F77, 0x2FF3, 0x3FEF, 0x4FEB,
+                      0x5F6B, 0x6EEF, 0x7E73, 0x7DF7, 0x7D7B, 0x6D7F, 0x7FFF, 0x0000,
+                      0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000,
+                      0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000,
+                      0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000,
+                      0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000,
+                      0x0000, 0x021F, 0x01DD, 0x017B, 0x0118, 0x00D6, 0x0074, 0x0011,
+                      0x7C0E, 0x740C, 0x6C0A, 0x6408, 0x5C06, 0x5404, 0x4C02, 0x4000,
+                      0x0011, 0x6BBF, 0x52D7, 0x4695, 0x3E53, 0x3611, 0x31F0, 0x298D,
+                      0x3E76, 0x3634, 0x2E13, 0x25F2, 0x1DB0, 0x198E, 0x216B, 0x0000,
+                      0x0208, 0x635A, 0x5B18, 0x52D6, 0x4A94, 0x4252, 0x3A10, 0x31CE,
+                      0x39CD, 0x420D, 0x624F, 0x7291, 0x7EF3, 0x7F77, 0x2D8C, 0x7FFF,
+                      0x0208, 0x3E10, 0x39EF, 0x35CE, 0x31AD, 0x2D8C, 0x296B, 0x294A,
+                      0x2D2A, 0x350B, 0x3D4C, 0x458D, 0x51EE, 0x7290, 0x7798, 0x7FFF,
+                      0x0300, 0x7FFF, 0x6B9B, 0x5F38, 0x52B5, 0x4652, 0x39EF, 0x2D8D,
+                      0x212C, 0x1CCB, 0x001E, 0x0016, 0x2810, 0x02DA, 0x7C1F, 0x1907,
+                      0x4000, 0x5695, 0x5274, 0x4E53, 0x4A32, 0x4611, 0x41F0, 0x3DCF,
+                      0x39AE, 0x358D, 0x5295, 0x4A53, 0x4211, 0x39CF, 0x318D, 0x0000,
+                      0x39C0, 0x7FFF, 0x737E, 0x5ED9, 0x4E55, 0x41F2, 0x316E, 0x292C,
+                      0x6BDA, 0x5B56, 0x46B1, 0x362D, 0x2DAB, 0x035F, 0x7FFF, 0x001F,
+                      0x0000, 0x62B4, 0x5A72, 0x5231, 0x4A10, 0x3DCE, 0x318C, 0x296B,
+                      0x0273, 0x0232, 0x0211, 0x01CF, 0x0014, 0x0012, 0x0010, 0x0000,
+                      0x0211, 0x7FFA, 0x7F77, 0x6EF4, 0x6691, 0x522E, 0x41CC, 0x396C,
+                      0x6FFF, 0x5B5B, 0x3E53, 0x2DAE, 0x216B, 0x031F, 0x7FFF, 0x0000,
+                      0x3C00, 0x577A, 0x36D8, 0x3274, 0x2DF2, 0x296F, 0x252C, 0x2754,
+                      0x2710, 0x268F, 0x260D, 0x25CC, 0x256A, 0x2529, 0x7FFF, 0x0000,
+                      0x0211, 0x001F, 0x001F, 0x001F, 0x001F, 0x001F, 0x001F, 0x001F,
+                      0x001F, 0x001F, 0x001F, 0x001F, 0x001F, 0x001F, 0x001F, 0x001F,
+                      0x0211, 0x6FFF, 0x537A, 0x4293, 0x2DED, 0x258B, 0x1D49, 0x53FF,
+                      0x37BF, 0x2AFB, 0x1A76, 0x01F2, 0x018F, 0x014C, 0x7FFF, 0x0000,
+                      0x0000, 0x62F5, 0x5271, 0x420E, 0x39AC, 0x420E, 0x5271, 0x5ED7,
+                      0x4E75, 0x4212, 0x3DD0, 0x398E, 0x352C, 0x310B, 0x7FFF, 0x0000,
+                      0x4000, 0x67FF, 0x5B9F, 0x4F3D, 0x42BA, 0x3E77, 0x3A35, 0x35F3,
+                      0x31B0, 0x2D6D, 0x7379, 0x5E95, 0x4E53, 0x4A11, 0x45EF, 0x7FFF,
+                      0x7C00, 0x7FFF, 0x738E, 0x6B1C, 0x5276, 0x4613, 0x3DD1, 0x358F,
+                      0x2D4D, 0x6B5A, 0x5AD6, 0x4A52, 0x39CE, 0x318C, 0x215C, 0x2108,
+                      0x2940, 0x639C, 0x5B5A, 0x5318, 0x4AD6, 0x4294, 0x3A52, 0x3210,
+                      0x29CE, 0x218C, 0x194A, 0x1908, 0x10C6, 0x0884, 0x0042, 0x0000,
+                      0x2940, 0x7FDA, 0x7F0E, 0x6E00, 0x790B, 0x680B, 0x480B, 0x46DA,
+                      0x3E98, 0x3A76, 0x3255, 0x2A13, 0x21D0, 0x198E, 0x7FFF, 0x14A5,
+                      0x0000, 0x7FFF, 0x7B55, 0x6ED0, 0x5E6F, 0x4E0E, 0x39CD, 0x298C,
+                      0x214B, 0x2710, 0x260D, 0x25CC, 0x3274, 0x296F, 0x252C, 0x0000,
+                      0x212F, 0x7FF0, 0x7FF0, 0x7FF0, 0x7FF0, 0x7FF0, 0x7FF0, 0x7FF0,
+                      0x7FF0, 0x7FF0, 0x7FF0, 0x7FF0, 0x7FF0, 0x7FF0, 0x7FF0, 0x7FF0,
+                      0x01E0, 0x52FF, 0x423F, 0x319B, 0x0014, 0x0010, 0x294C, 0x7BDF,
+                      0x633B, 0x52D6, 0x4673, 0x3A0F, 0x31AB, 0x2D48, 0x7FFF, 0x18E6,
+                      0x4000, 0x46FB, 0x429A, 0x3E57, 0x3A35, 0x35F3, 0x31D1, 0x2DAF,
+                      0x296D, 0x252B, 0x20E9, 0x5254, 0x41F0, 0x39AE, 0x316C, 0x53FF,
+                      0x2980, 0x7C1E, 0x6C16, 0x5C11, 0x3A76, 0x2A13, 0x21D0, 0x198E,
+                      0x6FFD, 0x6379, 0x56D4, 0x4A50, 0x3DCC, 0x3189, 0x7FFF, 0x2105,
+                      0x01C0, 0x7FFA, 0x7378, 0x5EF4, 0x5272, 0x4DF0, 0x3D8F, 0x350E,
+                      0x208C, 0x3EDB, 0x3699, 0x2615, 0x15D3, 0x1590, 0x014E, 0x151F,
+                      0x292A, 0x53DF, 0x3B1F, 0x2A9C, 0x1A18, 0x01B5, 0x0151, 0x212D,
+                      0x252A, 0x03FE, 0x0338, 0x0294, 0x0210, 0x01AD, 0x7FFF, 0x18C7,
+                      0x292A, 0x7F3F, 0x72BB, 0x6236, 0x5DF4, 0x55B2, 0x4D90, 0x416E,
+                      0x354C, 0x5F1A, 0x4EB5, 0x4230, 0x31AC, 0x296A, 0x7FFF, 0x0000,
+                      0x4000, 0x537C, 0x36B8, 0x2E34, 0x29B0, 0x296D, 0x250A, 0x53FA,
+                      0x3FF6, 0x3B52, 0x36EE, 0x326C, 0x2E0B, 0x29A9, 0x2947, 0x0000,
+                      0x30CA, 0x429F, 0x361A, 0x35D6, 0x3191, 0x2D2D, 0x2D0A, 0x7EE0,
+                      0x7E40, 0x6DC0, 0x5D40, 0x4C00, 0x5B5F, 0x1DB0, 0x7FFF, 0x0000,
+                      0x2940, 0x67DC, 0x4F16, 0x42B3, 0x3A2F, 0x31CC, 0x318A, 0x2D48,
+                      0x41F1, 0x358E, 0x316D, 0x292B, 0x3B5E, 0x3A98, 0x7FFF, 0x14A5,
+                      0x2940, 0x7BDF, 0x633B, 0x52D6, 0x4673, 0x3A0F, 0x31AB, 0x2D48,
+                      0x7F9C, 0x66F7, 0x4A31, 0x3DCE, 0x7D35, 0x3D4C, 0x7FFF, 0x14A5,
+                      0x30CA, 0x429F, 0x361A, 0x35D6, 0x3191, 0x2D2D, 0x2D0A, 0x77FD,
+                      0x5F57, 0x4AB2, 0x3A2E, 0x2DCB, 0x5F7F, 0x1DB0, 0x7FFF, 0x0000,
+                      0x0200, 0x7FBF, 0x7759, 0x66F3, 0x4E6C, 0x35E7, 0x29A0, 0x7ECC,
+                      0x69CD, 0x4C0D, 0x380C, 0x02DF, 0x01D9, 0x0110, 0x7FFF, 0x0000,
+                      0x03FF, 0x5339, 0x42B4, 0x3A50, 0x320E, 0x29EC, 0x21AA, 0x001F,
+                      0x7BDE, 0x5AF6, 0x4651, 0x39EE, 0x31AC, 0x2D8A, 0x03E0, 0x0000,
+                      0x2940, 0x5295, 0x3DF1, 0x294D, 0x6887, 0x4807, 0x3807, 0x2807,
+                      0x0010, 0x000C, 0x39EE, 0x2D8B, 0x2549, 0x1D08, 0x7FFF, 0x0421,
+                      0x0300, 0x77FE, 0x677A, 0x52D5, 0x4272, 0x360F, 0x31CC, 0x216A,
+                      0x1507, 0x031C, 0x0298, 0x0214, 0x01AF, 0x5000, 0x001C, 0x1506,
+                      0x0300, 0x6318, 0x5AD6, 0x4A52, 0x39CE, 0x318C, 0x294A, 0x2108,
+                      0x0016, 0x0012, 0x000F, 0x000C, 0x000A, 0x3400, 0x7FFF, 0x0000,
+                      0x0000, 0x294A, 0x4A52, 0x39CE, 0x35AD, 0x318C, 0x35AD, 0x39CE,
+                      0x4210, 0x5AD8, 0x4A54, 0x3DF1, 0x2D6B, 0x001F, 0x6B5A, 0x0000,
+                      0x4000, 0x46D7, 0x4274, 0x3E53, 0x3E32, 0x3E11, 0x3DF0, 0x7FFF,
+                      0x5BB6, 0x42F1, 0x3250, 0x31AE, 0x310C, 0x001F, 0x0018, 0x200A,
+                      0x4000, 0x7FFF, 0x7BFD, 0x6737, 0x5296, 0x3A33, 0x29D1, 0x014D,
+                      0x7BDE, 0x6B5A, 0x5AD6, 0x4631, 0x35AD, 0x294A, 0x00EA, 0x0008,
+                      0x4000, 0x4FDF, 0x4F5E, 0x4EBB, 0x4E17, 0x4813, 0x300F, 0x280D,
+                      0x27DF, 0x031E, 0x027B, 0x01B7, 0x0013, 0x000E, 0x000C, 0x000A,
+                      0x0000, 0x50ED, 0x4D0C, 0x492B, 0x454A, 0x4169, 0x3D88, 0x3967,
+                      0x3D48, 0x4129, 0x450A, 0x48EB, 0x4CCC, 0x001F, 0x001F, 0x0000,
+                      0x4000, 0x73FF, 0x6BFD, 0x5B5A, 0x42D7, 0x3E55, 0x31F0, 0x01AC,
+                      0x0149, 0x3EF3, 0x3690, 0x2E4F, 0x260D, 0x1DCB, 0x7FFF, 0x0008,
+                      0x4000, 0x73FF, 0x6BFD, 0x5B5A, 0x42D7, 0x3E55, 0x31F0, 0x01AC,
+                      0x0149, 0x029C, 0x0218, 0x0194, 0x0150, 0x0008, 0x7FFF, 0x292C,
+                      0x0000, 0x02D6, 0x0252, 0x01CE, 0x014A, 0x0108, 0x0156, 0x00D2,
+                      0x00D2, 0x000E, 0x0000, 0x4620, 0x4631, 0x4631, 0x4631, 0x0000,
+                      0x0300, 0x7FFF, 0x6B9B, 0x5F38, 0x52D5, 0x4A93, 0x3E30, 0x31CD,
+                      0x298B, 0x256A, 0x001F, 0x03FF, 0x03E0, 0x529F, 0x7FFF, 0x2000,
+                      0x4000, 0x739C, 0x5EF7, 0x5295, 0x4A53, 0x4211, 0x39CF, 0x318D,
+                      0x294B, 0x0254, 0x01F1, 0x018F, 0x001F, 0x031F, 0x0014, 0x0000,
+                      0x3108, 0x21C8, 0x21A8, 0x2188, 0x2168, 0x2148, 0x2528, 0x2908,
+                      0x3108, 0x3508, 0x3908, 0x3D08, 0x3508, 0x3108, 0x7FFF, 0x2508,
+                      0x7C00, 0x7FFF, 0x777D, 0x62D8, 0x5254, 0x41F0, 0x39AE, 0x316C,
+                      0x4277, 0x5B9E, 0x42D8, 0x3254, 0x2E12, 0x29AF, 0x214C, 0x18C8,
+                      0x7C00, 0x7FFF, 0x73DC, 0x6358, 0x4EB3, 0x3E2F, 0x35ED, 0x318A,
+                      0x5617, 0x49B4, 0x4192, 0x3970, 0x314E, 0x02DF, 0x0156, 0x292C,
+                      0x01C0, 0x4EB7, 0x4675, 0x4254, 0x3E33, 0x3A12, 0x31D0, 0x298E,
+                      0x214C, 0x190A, 0x0233, 0x0212, 0x46DA, 0x3E98, 0x3656, 0x2E14,
+                      0x4000, 0x7F7F, 0x6EFB, 0x5E77, 0x4DF3, 0x3D6F, 0x2CEB, 0x1C6A,
+                      0x0009, 0x46DF, 0x41FB, 0x3DF7, 0x3993, 0x352F, 0x7FFF, 0x0008,
+                      0x4000, 0x0290, 0x4F3F, 0x3EBB, 0x3699, 0x2E57, 0x2615, 0x1DD3,
+                      0x1590, 0x014E, 0x024F, 0x020E, 0x01CD, 0x018C, 0x31CD, 0x298B,
+                      0x4000, 0x7FFF, 0x6F9B, 0x6777, 0x5F34, 0x5AD2, 0x4E70, 0x3E0C,
+                      0x31A9, 0x2567, 0x023A, 0x01B4, 0x014F, 0x012C, 0x02DF, 0x1D25,
+                      0x0200, 0x6B9D, 0x4AFD, 0x365D, 0x21DC, 0x1D58, 0x1912, 0x14EF,
+                      0x18CB, 0x1CA9, 0x2087, 0x03FF, 0x029F, 0x7E00, 0x029C, 0x2485,
+                      0x4000, 0x46D6, 0x4274, 0x3E32, 0x3A11, 0x35F0, 0x31AF, 0x2D8E,
+                      0x294C, 0x250A, 0x20C8, 0x5254, 0x41F0, 0x39AE, 0x316C, 0x53FF,
+                      0x0000, 0x7FFF, 0x7F00, 0x6280, 0x5200, 0x039F, 0x0298, 0x01D2,
+                      0x001F, 0x0018, 0x0014, 0x7C1F, 0x6018, 0x5014, 0x6310, 0x4200,
+                      0x0200, 0x3D7F, 0x2DFB, 0x1E77, 0x0EF3, 0x1F6F, 0x2FEB, 0x3F67,
+                      0x4EE3, 0x5E67, 0x6DEB, 0x7D6F, 0x6CF3, 0x5C78, 0x7FFF, 0x0000,
+                      0x4000, 0x63FF, 0x53FF, 0x3F7D, 0x22DA, 0x1235, 0x01B1, 0x014E,
+                      0x529F, 0x319F, 0x001C, 0x0017, 0x0010, 0x7F40, 0x7FFF, 0x0000,
+                      0x0200, 0x73FF, 0x53DF, 0x4BBF, 0x3B9F, 0x7FFC, 0x7BD3, 0x77AE,
+                      0x7380, 0x7F9F, 0x7A9E, 0x75DD, 0x701C, 0x7C00, 0x7FFF, 0x0000,
+                      0x4000, 0x73FC, 0x53F4, 0x33CC, 0x0380, 0x7FFC, 0x7FF4, 0x7F8C,
+                      0x7F08, 0x739F, 0x529F, 0x421F, 0x109F, 0x03FF, 0x7FFF, 0x0000,
+                      0x0200, 0x00DF, 0x009C, 0x0058, 0x0014, 0x7FFF, 0x6739, 0x4E73,
+                      0x39CE, 0x318C, 0x294A, 0x2108, 0x1CE7, 0x1084, 0x0842, 0x0000,
+                      0x001F, 0x03DF, 0x033F, 0x01F9, 0x0151, 0x00ED, 0x001A, 0x7D40,
+                      0x7BDE, 0x5AD6, 0x39CE, 0x3AEE, 0x2609, 0x03FF, 0x0231, 0x2920,
+                      0x1CE7, 0x3DEF, 0x5EF7, 0x7FFF, 0x0007, 0x000F, 0x0017, 0x001F,
+                      0x00E0, 0x01E0, 0x02E0, 0x03E0, 0x1C00, 0x3C00, 0x5C00, 0x7C00,
+                      0x0000, 0x5DFF, 0x4E7F, 0x3EFB, 0x2F77, 0x2FF3, 0x3FEF, 0x4FEB,
+                      0x5F6B, 0x6EEF, 0x7E73, 0x7DF7, 0x7D7B, 0x6D7F, 0x7FFF, 0x0000
+                     };
+
+void UploadPalette(uint32_t startAddress, uint32_t endAddress)
+{
+  uint32_t address = 0;
+  uint16_t data = 0, i = 0;
+  char text[40];
+
+  DisplayTop("<Write RAM> ...");
+  StartProgress(startAddress, endAddress);
+
+  SetWriteDataToBus();
+  for (address = startAddress; address < endAddress; address += 2)
+  {
+    WriteDataTo(address, palette[i++]);
+    DisplayProgress(address);
+  }
+
+  i = 0;
+  DisplayTop("<Read RAM> ...");
+  ResetProgress(startAddress, endAddress);
+
+  SetReadDataFromBus();
+  for (address = startAddress; address < endAddress; address += 2)
+  {
+    data = ReadDataFrom(address);
+
+    DisplayProgress(address);
+    if (data != palette[i])
+    {
+      sprintf(text, "Error @ 0x%0.6lX", address);
+      DisplayTop(text);
+
+      sprintf(text, "R: %0.4X E: %0.4X", data, palette[i]);
+      DisplayBottom(text);
+      lcd_key = WaitKey();
+      if (lcd_key == btnSELECT)
+        return;
+    }
+    i++;
+  }
+
+  DisplayTop("RAM OK");
+  sprintf(text, "0x%0.6lX-%0.6lX", startAddress, endAddress);
+  DisplayBottom(text);
+  WaitKey();
+}
+
+void loop()
+{
+  //40000-40fff RAM sprite display properties (co-ordinates, character, color - etc)
+  //50000-50dff Palette RAM
+  //7a000-7abff RAM shared with Z80; 16-bit on this side, 8-bit on Z80 side
+  //CheckRAMContinuous(0x50000, 0x50dff);
+
+  Display("Press SELECT", "to check PCB");
   lcd_key = WaitKey();
 
-  CheckROMInterleaved(00000, 0x1ffff);
-  CheckRAM(0x30000, 0x33fff);
-  CheckRAM(0x40000, 0x40fff);
-  CheckRAM(0x50000, 0x50dff);
-  CheckRAM8bit(0x7a000, 0x7abff);
- 
+
+  //CheckROM(0x000000, 0x080000);
+  //CheckRAM(0x100000, 0x103fff);
+
+  /*
+  CheckRAMPattern(0x100000, 0x103fff, 0x00AA);
+  CheckRAMPattern(0x100000, 0x103fff, 0x0055);
+  CheckRAMPattern(0x100000, 0x103fff, 0xAA00);
+  CheckRAMPattern(0x100000, 0x103fff, 0x5500);
+  */
+  
+
+  //CheckRAM8bitPattern(0x280000, 0x28ffff, 0x00AA);  //Fail MSD -> 8 bit RAM
+  //CheckRAM8bitPattern(0x280000, 0x28ffff, 0x0055);  //Fail MSD -> 8 bit RAM
+
+
+  //CheckRAM(0x400000, 0x400fff);
+
+  
+  //CheckRAMPattern(0x400000, 0x400fff, 0xAAAA);
+  //CheckRAMPattern(0x400000, 0x400fff, 0x5555);
+  //CheckRAMPattern(0x400000, 0x400fff, 0xAA00);
+  //CheckRAMPattern(0x400000, 0x400fff, 0x5500);
+  
+
+  //UploadPalette(0x400000, 0x400fff);
+
+/*
+  CheckRAMPattern(0x500000, 0x501fff, 0x00AA);
+  CheckRAMPattern(0x500000, 0x501fff, 0x0055);
+  CheckRAMPattern(0x500000, 0x501fff, 0xAA00);
+  CheckRAMPattern(0x500000, 0x501fff, 0x5500);
+  */
+
+  //CheckRAM8bitPattern(0x600000, 0x60ffff, 0x00AA);  //Fail MSD -> 8 bit RAM
+  //CheckRAM8bitPattern(0x600000, 0x60ffff, 0x0055);  //Fail MSD -> 8 bit RAM
+
+    //CheckROMInterleaved(00000, 0x1ffff);
+    CheckRAM(0x30000, 0x33fff);
+    CheckRAM(0x40000, 0x40fff);
+    CheckRAM(0x50000, 0x50dff);
+    CheckRAM8bit(0x7a000, 0x7abff);
+
   //if(lcd_key == btnSELECT)
-    //SelectCheckRAM();
+  //SelectCheckRAM();
 }
 
 
