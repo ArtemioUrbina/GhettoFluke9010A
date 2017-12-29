@@ -191,6 +191,44 @@ uint32_t SelectHex(uint32_t startVal, uint32_t endVal, uint8_t charCount, uint8_
   return value;
 }
 
+#define SEL_NONE    -2
+#define SEL_CANCEL  -3
+
+int displaymenu(const char *menuHead, const char **menuOptions, int selMax)
+{
+  int sel = 0, exitmenu = 0;
+
+  do
+  {
+    Display(menuHead, menuOptions[sel]);
+    lcd_key = WaitKey();
+    
+    switch(lcd_key)
+    {
+      case btnUP:
+        sel -= 1;
+        break;
+      case btnDOWN:
+        sel += 1;
+        break;
+      case btnSELECT:
+        exitmenu = 1;
+        break;
+      case btnLEFT:
+        exitmenu = 2;
+        break;
+    }
+    if(sel == -1)
+      sel = selMax;
+    if(sel >= selMax)
+      sel = 0;
+  }
+  while(!exitmenu);
+
+  return sel;
+}
+
+
 #define ResetProgress(startval, endval) \  
     DisplayBottom("[--------------]"); __unit = (long)(endval - startval)/(uint32_t)15; __amount = 0; __last = (long)0xFF;
 

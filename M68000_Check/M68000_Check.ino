@@ -254,7 +254,7 @@ uint16_t ReadData()
 
 inline uint16_t ReadDataFrom(uint32_t address)
 {
-  uint16_t data;
+  uint16_t data = 0;
 
   EnableRead();
   SetAddress(address);
@@ -473,6 +473,7 @@ void CheckRAM8bit(uint32_t startAddress, uint32_t endAddress)
     DisplayProgress(address);
   }
 
+  alter = 0;
   DisplayTop("<Read RAM> ...");
   ResetProgress(startAddress, endAddress);
   SetReadDataFromBus();
@@ -558,8 +559,8 @@ void SelectCheckROM()
   uint32_t startval, endval;
 
   DisplayTop("<ROM CRC>");
-  startval = SelectHex(0, 0x7FFFFF, 6, 1, 1, "start:");
-  endval = SelectHex(startval, 0x7FFFFF, 6, 1, 1, "  end:");
+  startval = SelectHex(0, 0xFFFFFF, 6, 1, 1, "start:");
+  endval = SelectHex(startval, 0xFFFFFF, 6, 1, 1, "  end:");
 
   CheckROM(startval, endval);
 }
@@ -569,8 +570,8 @@ void SelectCheckROMInterleaved()
   uint32_t startval, endval;
 
   DisplayTop("<ROM CRC Intlv>");
-  startval = SelectHex(0, 0x7FFFFF, 6, 1, 1, "start:");
-  endval = SelectHex(startval, 0x7FFFFF, 6, 1, 1, "  end:");
+  startval = SelectHex(0, 0xFFFFFF, 6, 1, 1, "start:");
+  endval = SelectHex(startval, 0xFFFFFF, 6, 1, 1, "  end:");
 
   CheckROMInterleaved(startval, endval);
 }
@@ -580,8 +581,8 @@ void SelectCheckRAM()
   uint32_t startval, endval;
 
   DisplayTop("<Check RAM>");
-  startval = SelectHex(0, 0x7FFFFE, 6, 1, 1, "start:");
-  endval = SelectHex(startval, 0x7FFFFF, 6, 1, 1, "  end:");
+  startval = SelectHex(0, 0xFFFFFF, 6, 1, 1, "start:");
+  endval = SelectHex(startval, 0xFFFFFF, 6, 1, 1, "  end:");
 
   CheckRAM(startval, endval);
 }
@@ -592,8 +593,8 @@ void SelectCheckRAMPattern()
   uint16_t pattern = 0xFFFF;
 
   DisplayTop("<Check RAM Ptn>");
-  startval = SelectHex(0, 0x7FFFFE, 6, 1, 1, "start:");
-  endval = SelectHex(startval, 0x7FFFFF, 6, 1, 1, "  end:");
+  startval = SelectHex(0, 0xFFFFFF, 6, 1, 1, "start:");
+  endval = SelectHex(startval, 0xFFFFFF, 6, 1, 1, "  end:");
   pattern = SelectHex(0, 0xFFFF, 4, 1, 1, "pattern:");
 
   CheckRAMPattern(startval, endval, pattern);
@@ -604,8 +605,8 @@ void SelectCheckRAM8bit()
   uint32_t startval, endval;
 
   DisplayTop("<Check RAM 8>");
-  startval = SelectHex(0, 0x7FFFFE, 6, 1, 1, "start:");
-  endval = SelectHex(startval, 0x7FFFFF, 6, 1, 1, "  end:");
+  startval = SelectHex(0, 0xFFFFFF, 6, 1, 1, "start:");
+  endval = SelectHex(startval, 0xFFFFFF, 6, 1, 1, "  end:");
 
   CheckRAM8bit(startval, endval);
 }
@@ -616,8 +617,8 @@ void SelectCheckRAM8bitPattern()
   uint8_t pattern = 0xFF;
 
   DisplayTop("<Check RAM 8Pt>");
-  startval = SelectHex(0, 0x7FFFFE, 6, 1, 1, "start:");
-  endval = SelectHex(startval, 0x7FFFFF, 6, 1, 1, "  end:");
+  startval = SelectHex(0, 0xFFFFFF, 6, 1, 1, "start:");
+  endval = SelectHex(startval, 0xFFFFFF, 6, 1, 1, "  end:");
   pattern = SelectHex(0, 0xFF, 2, 1, 1, "pattern:");
 
   CheckRAM8bitPattern(startval, endval, pattern);
@@ -630,7 +631,7 @@ void SelectCheckRAM8bitPattern()
 void DisplayIntro()
 {
   Display("Ghetto 68000", "Artemio 2017");
-  delay(2000);
+  delay(1000);
 }
 
 
@@ -651,47 +652,48 @@ void setup()
 void CheckRAMContinuous(uint32_t startAddress, uint32_t endAddress)
 {
   uint32_t address = 0;
-  uint16_t data = 0;
+  uint16_t data = 0, pattern[2] = { 0xFFFF, 0x0000}, alter = 0;
   char text[40];
 
   sprintf(text, "W:0x%0.6lX-%0.6lX", startAddress, endAddress);
-  DisplayTop(text);
+  DisplayBottom(text);
+  WaitKey();
 
   StartProgress(startAddress, endAddress);
 
   SetWriteDataToBus();
   for (address = startAddress; address < endAddress; address += 2)
   {
-    WriteDataTo(address, address);
-    delay(1);
+    WriteDataTo(address, pattern[alter]);
+    alter = !alter;
 
     DisplayProgress(address);
   }
-  SetData(0);
 
   sprintf(text, "R:0x%0.6lX-%0.6lX", startAddress, endAddress);
-  DisplayTop(text);
+  DisplayBottom(text);
   ResetProgress(startAddress, endAddress);
+  WaitKey();
 
+  alter = 0;
   SetReadDataFromBus();
   for (address = startAddress; address < endAddress; address += 2)
   {
     data = ReadDataFrom(address);
-    delay(1);
 
-    DisplayProgress(address);
-    /*
-      if(data != (0x0000FFFF & address))
-      {
+    if(data != pattern[alter])
+    {
       sprintf(text, "Error @ 0x%0.6lX", address);
       DisplayTop(text);
 
-      sprintf(text, "R: %0.4X E: %0.4X", data, 0x0000FFFF & address);
+      sprintf(text, "R: %0.4X E: %0.4X", data, pattern[alter]);
       DisplayBottom(text);
 
-      delay(100);
-      }
-    */
+      delay(1000);
+    }
+    else
+        DisplayProgress(address);
+    alter = !alter;
   }
 }
 
@@ -999,61 +1001,159 @@ void UploadPalette(uint32_t startAddress, uint32_t endAddress)
   WaitKey();
 }
 
+void ReadPort(uint32_t address, uint32_t count)
+{
+  char text[40];
+  uint32_t counter = 0;
+  CRC32 crc;
+
+  DisplayTop("<Read Port> ...");
+  StartProgress(0, count);
+
+  SetReadDataFromBus();
+  for (counter = 0; counter < count; counter ++)
+  {
+    uint16_t data = 0;
+    
+    data = ReadDataFrom(address);
+
+    sprintf(text, "@0x%lX: 0x%X", address, data);
+    DisplayTop(text);
+
+    DisplayProgress(counter);
+  }
+
+  WaitKey();
+}
+
+#define SEL_NONE    -2
+#define SEL_CANCEL  -3
+
+int displaymenu(const char *menuHead, const char **menuOptions, int selMax)
+{
+  int sel = 0, exitmenu = 0;
+
+  do
+  {
+    Display(menuHead, menuOptions[sel]);
+    lcd_key = WaitKey();
+    
+    switch(lcd_key)
+    {
+      case btnUP:
+        sel -= 1;
+        break;
+      case btnDOWN:
+        sel += 1;
+        break;
+      case btnSELECT:
+        exitmenu = 1;
+        break;
+      case btnLEFT:
+        exitmenu = 2;
+        break;
+    }
+    if(sel == -1)
+      sel = selMax;
+    if(sel >= selMax)
+      sel = 0;
+  }
+  while(!exitmenu);
+
+  return sel;
+}
+
+void SelectAddressData()
+{
+  char text1[20], text2[20];
+  const char *type[4] = { "Read", "Write", "Read w/increment", "Write w/increment" };
+  int typeSel = 0, pos = 1;
+  uint32_t address = 0, increment = 0;
+  uint16_t data = 0;
+
+  typeSel = displaymenu("Select Mode", type, 4);
+  DisplayTop("");
+  address = SelectHex(0, 0xFFFFFF, 6, 1, 1, "Addr:");
+  if(typeSel == 1 || typeSel == 3)
+    data = SelectHex(0, 0xFFFF, 4, 1, 1, "Val:");
+  if(typeSel >= 2)
+    increment = SelectHex(0, 0xFFFFFF, 6, 1, 1, "Incr:");
+  do
+  {
+    if(typeSel == 0 || typeSel == 2)
+    {
+      SetReadDataFromBus();  
+      
+      EnableRead();
+      SetAddress(address);
+      RequestAddress();
+      RequestDataReady();
+  
+      data = ReadData();
+  
+      sprintf(text1, "Read 0x%0.6lX:", address);
+      DisplayTop(text1);
+      sprintf(text2, "0x%0.4X", data);
+      DisplayBottom(text2);
+  
+      lcd_key = WaitKey();  
+      
+      EndRequestDataReady();
+      EndRequestAddress();
+
+      data = 0;
+    }
+    else
+    {
+      SetWriteDataToBus();
+      
+      SetAddress(address);
+      RequestAddress();
+      EnableWrite();
+      
+      SetData(data);
+      RequestDataReady();
+    
+      WaitForData();
+      
+      sprintf(text1, "Write 0x%0.6lX:", address);
+      DisplayTop(text1);
+      sprintf(text2, "0x%0.4X", data);
+      DisplayBottom(text2);
+  
+      lcd_key = WaitKey();  
+      
+      EndRequestDataReady();
+      EndRequestAddress();
+      EnableRead();
+    }
+
+    if(typeSel >= 2)
+        address += increment;
+  }
+  while(lcd_key == btnSELECT);
+}
+
 void loop()
 {
-  //40000-40fff RAM sprite display properties (co-ordinates, character, color - etc)
-  //50000-50dff Palette RAM
-  //7a000-7abff RAM shared with Z80; 16-bit on this side, 8-bit on Z80 side
-  //CheckRAMContinuous(0x50000, 0x50dff);
+  SelectAddressData();
 
-  Display("Press SELECT", "to check PCB");
-  lcd_key = WaitKey();
-
-
-  //CheckROM(0x000000, 0x080000);
+  //FixEight
   //CheckRAM(0x100000, 0x103fff);
+  //CheckROM(0x000000, 0x080000);
+  //CheckRAM8bit(0x280000, 0x28ffff);  //Fail MSD -> 8 bit RAM
+  //CheckRAM(0x400000, 0x400fff); // WiIl FAIL Always, byteswapped/latched
+  //CheckRAM(0x500000, 0x501fff);
+  //CheckRAM8bit(0x600000, 0x60ffff);  //Fail MSD -> 8 bit RAM
 
-  /*
-  CheckRAMPattern(0x100000, 0x103fff, 0x00AA);
-  CheckRAMPattern(0x100000, 0x103fff, 0x0055);
-  CheckRAMPattern(0x100000, 0x103fff, 0xAA00);
-  CheckRAMPattern(0x100000, 0x103fff, 0x5500);
-  */
+  // Hishouzame
   
-
-  //CheckRAM8bitPattern(0x280000, 0x28ffff, 0x00AA);  //Fail MSD -> 8 bit RAM
-  //CheckRAM8bitPattern(0x280000, 0x28ffff, 0x0055);  //Fail MSD -> 8 bit RAM
-
-
-  //CheckRAM(0x400000, 0x400fff);
-
+  CheckROMInterleaved(00000, 0x1ffff);
+  CheckRAM(0x30000, 0x33fff);
+  CheckRAM(0x40000, 0x40fff);
+  CheckRAM(0x50000, 0x50dff);
+  CheckRAM8bit(0x7a000, 0x7abff);
   
-  //CheckRAMPattern(0x400000, 0x400fff, 0xAAAA);
-  //CheckRAMPattern(0x400000, 0x400fff, 0x5555);
-  //CheckRAMPattern(0x400000, 0x400fff, 0xAA00);
-  //CheckRAMPattern(0x400000, 0x400fff, 0x5500);
-  
-
-  //UploadPalette(0x400000, 0x400fff);
-
-/*
-  CheckRAMPattern(0x500000, 0x501fff, 0x00AA);
-  CheckRAMPattern(0x500000, 0x501fff, 0x0055);
-  CheckRAMPattern(0x500000, 0x501fff, 0xAA00);
-  CheckRAMPattern(0x500000, 0x501fff, 0x5500);
-  */
-
-  //CheckRAM8bitPattern(0x600000, 0x60ffff, 0x00AA);  //Fail MSD -> 8 bit RAM
-  //CheckRAM8bitPattern(0x600000, 0x60ffff, 0x0055);  //Fail MSD -> 8 bit RAM
-
-    //CheckROMInterleaved(00000, 0x1ffff);
-    CheckRAM(0x30000, 0x33fff);
-    CheckRAM(0x40000, 0x40fff);
-    CheckRAM(0x50000, 0x50dff);
-    CheckRAM8bit(0x7a000, 0x7abff);
-
   //if(lcd_key == btnSELECT)
   //SelectCheckRAM();
 }
-
-
