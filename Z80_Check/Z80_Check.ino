@@ -546,6 +546,93 @@ void SelectPortData()
   while(lcd_key == btnSELECT);
 }
 
+//  ----------------------------------------------------------------------------------------------------------------------------
+//  MENU Functions
+//  ----------------------------------------------------------------------------------------------------------------------------
+
+void SelectCheckROM()
+{
+  uint16_t startval, endval;
+
+  DisplayTop("<ROM CRC>");
+  startval = SelectHex(0, 0xFFFF, 4, 1, 1, "start:");
+  endval = SelectHex(startval, 0xFFFF, 4, 1, 1, "  end:");
+
+  CheckROM(startval, endval);
+}
+
+void SelectCheckRAM()
+{
+  uint16_t startval, endval;
+
+  DisplayTop("<Check RAM>");
+  startval = SelectHex(0, 0xFFFF, 4, 1, 1, "start:");
+  endval = SelectHex(startval, 0xFFFF, 4, 1, 1, "  end:");
+
+  CheckRAM(startval, endval);
+}
+
+void SelectCheckRAMPattern()
+{
+  uint16_t startval, endval;
+  uint8_t pattern = 0xFF;
+
+  DisplayTop("<Check RAM 8Pt>");
+  startval = SelectHex(0, 0xFFFF, 4, 1, 1, "start:");
+  endval = SelectHex(startval, 0xFFFF, 4, 1, 1, "  end:");
+  pattern = SelectHex(0, 0xFF, 2, 1, 1, "pattern:");
+
+  CheckRAMPattern(startval, endval, pattern);
+}
+
+void MainMenu()
+{
+  const char *type[5] = { "Check ROM", "Check RAM", "Check RAM Pattn", "R/W Port", "Game tests" };
+  int typeSel = 0;
+
+  typeSel = displaymenu("Select Test", type, 5);
+  switch(typeSel)
+  {
+    case 0:
+      SelectCheckROM();
+      break;
+    case 1:
+      SelectCheckRAM();
+      break;
+    case 2:
+      SelectCheckRAMPattern();
+      break;
+    case 3:
+      SelectPortData();
+      break;
+    case 4:
+      GameTests();
+      break;
+  }
+}
+
+void GameTests()
+{
+  const char *type[1] = { "Hishouzame" };
+  int typeSel = 0;
+
+  typeSel = displaymenu("Select Test", type, 1);
+  switch(typeSel)
+  {
+    case 0:
+      TestHishouza();
+      break;
+  }
+}
+
+void TestHishouza()
+{
+  //0000-7fff ROM
+  CheckROM(0, 0x7fff);
+  //8000-87ff shared with 68000; 8-bit on this side, 16-bit on 68000 side
+  CheckRAM(0x8000, 0x87ff);
+}
+
 
 //  ----------------------------------------------------------------------------------------------------------------------------
 //  Main Loop
@@ -562,12 +649,7 @@ void setup()
 
 void loop() 
 {
-  //0000-7fff ROM
-  CheckROM(0, 0x7fff);
-  //8000-87ff shared with 68000; 8-bit on this side, 16-bit on 68000 side
-  CheckRAM(0x8000, 0x87ff);
-
-  SelectPortData();
+  MainMenu();
 }
 
 
