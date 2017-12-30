@@ -599,33 +599,6 @@ void CheckRAMContinuous(uint32_t startAddress, uint32_t endAddress)
   }
 }
 
-
-void ReadPort(uint32_t address, uint32_t count)
-{
-  char text[40];
-  uint32_t counter = 0;
-  CRC32 crc;
-
-  DisplayTop("<Read Port> ...");
-  StartProgress(0, count);
-
-  SetReadDataFromBus();
-  for (counter = 0; counter < count; counter ++)
-  {
-    uint16_t data = 0;
-    
-    data = ReadDataFrom(address);
-
-    sprintf(text, "@0x%lX: 0x%X", address, data);
-    DisplayTop(text);
-
-    DisplayProgress(counter);
-  }
-
-  WaitKey();
-}
-
-
 void SelectAddressData()
 {
   char text1[20], text2[20];
@@ -773,6 +746,77 @@ void SelectCheckRAM8bitPattern()
   CheckRAM8bitPattern(startval, endval, pattern);
 }
 
+void MainMenu()
+{
+  const char *type[8] = { "Check ROM", "Check ROM Intlvd", "Check RAM", "Check RAM Pattn", 
+                          "Check RAM 8 Bit", "Check RAM 8 Pttn", "R/W Address", "Game tests" };
+  int typeSel = 0;
+
+  typeSel = displaymenu("Select Test", type, 8);
+  switch(typeSel)
+  {
+    case 0:
+      SelectCheckROM();
+      break;
+    case 1:
+      SelectCheckROMInterleaved();
+      break;
+    case 2:
+      SelectCheckRAM();
+      break;
+    case 3:
+      SelectCheckRAMPattern();
+      break;
+    case 4:
+      SelectCheckRAM8bit();
+      break;
+    case 5:
+      SelectCheckRAM8bitPattern();
+      break;
+    case 6:
+      SelectAddressData();
+      break;
+    case 7:
+      GameTests();
+      break;
+  }
+}
+
+void GameTests()
+{
+  const char *type[2] = { "FixEight", "Hishouzame" };
+  int typeSel = 0;
+
+  typeSel = displaymenu("Select Test", type, 2);
+  switch(typeSel)
+  {
+    case 0:
+      TestFixEight();
+      break;
+    case 1:
+      TestHishouza();
+      break;
+  }
+}
+
+void TestHishouza()
+{
+  CheckROMInterleaved(00000, 0x1ffff);
+  CheckRAM(0x30000, 0x33fff);
+  CheckRAM(0x40000, 0x40fff);   // WiIl FAIL Always, byteswapped/latched
+  CheckRAM(0x50000, 0x50dff);
+  CheckRAM8bit(0x7a000, 0x7abff);
+}
+
+void TestFixEight()
+{
+  CheckROM(0x000000, 0x080000);
+  CheckRAM(0x100000, 0x103fff);
+  CheckRAM8bit(0x280000, 0x28ffff);  //Fail MSD -> 8 bit RAM
+  CheckRAM(0x400000, 0x400fff);      // WiIl FAIL Always, byteswapped/latched
+  CheckRAM(0x500000, 0x501fff);
+  CheckRAM8bit(0x600000, 0x60ffff);  //Fail MSD -> 8 bit RAM
+}
 
 //  ----------------------------------------------------------------------------------------------------------------------------
 //  User Interface
@@ -800,24 +844,6 @@ void setup()
 
 void loop()
 {
-  SelectAddressData();
-
-  //FixEight
-  //CheckRAM(0x100000, 0x103fff);
-  //CheckROM(0x000000, 0x080000);
-  //CheckRAM8bit(0x280000, 0x28ffff);  //Fail MSD -> 8 bit RAM
-  //CheckRAM(0x400000, 0x400fff); // WiIl FAIL Always, byteswapped/latched
-  //CheckRAM(0x500000, 0x501fff);
-  //CheckRAM8bit(0x600000, 0x60ffff);  //Fail MSD -> 8 bit RAM
-
-  /*
-  // Hishouzame
-  
-  CheckROMInterleaved(00000, 0x1ffff);
-  CheckRAM(0x30000, 0x33fff);
-  CheckRAM(0x40000, 0x40fff);
-  CheckRAM(0x50000, 0x50dff);
-  CheckRAM8bit(0x7a000, 0x7abff);
-  */
-  
+  MainMenu();
 }
+
